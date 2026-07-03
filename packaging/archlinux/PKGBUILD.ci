@@ -28,9 +28,10 @@ optdepends=(
   "xclip: clipboard paste on X11"
   "xdotool: keyboard paste on X11"
 )
-# No source to fetch — the CI workflow places the tree at $srcdir/vibetype
-source=("dummy")
-sha256sums=("SKIP")
+# No source to fetch — the CI workflow places the tree at $srcdir/vibetype.
+source=()
+sha256sums=()
+noextract=()
 
 prepare() {
   cd "${srcdir}"
