@@ -312,11 +312,16 @@ void VibetypeEngine::doCommit(const std::string &text) {
     setRecordingState(false);
     dispatcher_.schedule([this, text]() {
         auto *ic = instance_->mostRecentInputContext();
-        if (ic) {
-            ic->commitString(text);
-        }
+        if (!ic)
+            return;
+        auto &panel = ic->inputPanel();
+        panel.setAuxDown(fcitx::Text());
+        panel.setPreedit(fcitx::Text());
+        panel.setClientPreedit(fcitx::Text());
+        ic->updatePreedit();
+        ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+        ic->commitString(text);
     });
-    doStatus("Vibetype done");
 }
 
 void VibetypeEngine::doStatus(const std::string &text) {
@@ -325,7 +330,11 @@ void VibetypeEngine::doStatus(const std::string &text) {
         if (!ic)
             return;
         auto &panel = ic->inputPanel();
-        panel.setAuxDown(fcitx::Text(text));
+        fcitx::Text display(text);
+        panel.setAuxDown(display);
+        panel.setPreedit(display);
+        panel.setClientPreedit(display);
+        ic->updatePreedit();
         ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     });
 }

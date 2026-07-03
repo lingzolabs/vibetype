@@ -49,6 +49,10 @@ class Fcitx5Helper:
         self._lock = threading.Lock()
         self._recording = False
         self._model_ready = False
+        self._indicator_stop = threading.Event()
+        self._indicator_thread: threading.Thread | None = None
+        self._indicator_label = "Recording"
+        self._indicator_frames = ["●○○", "○●○", "○○●"]
         # Flush stdout immediately so the C++ parent gets lines in real time
         sys.stdout.reconfigure(line_buffering=True)
         sys.stderr.reconfigure(line_buffering=True)
@@ -128,6 +132,40 @@ class Fcitx5Helper:
             self.log(f"Model check failed: {exc}")
             self.emit(f"error:{exc}")
 
+    # ── recording indicator ───────────────────────────────────────────
+
+    def _indicator_text(self, frame_index: int) -> str:
+        with self._lock:
+            label = self._indicator_label.strip() or "Recording"
+        return f"🎙 {label} {self._indicator_frames[frame_index % len(self._indicator_frames)]}"
+
+    def _indicator_loop(self) -> None:
+        frame = 0
+        while not self._indicator_stop.wait(0.35):
+            self.emit(f"status:{self._indicator_text(frame)}")
+            frame += 1
+
+    def _start_indicator(self, label: str = "Recording") -> None:
+        self._stop_indicator()
+        with self._lock:
+            self._indicator_label = label
+        self._indicator_stop.clear()
+        self.emit(f"status:{self._indicator_text(0)}")
+        self._indicator_thread = threading.Thread(
+            target=self._indicator_loop, name="vibetype-fcitx5-indicator", daemon=True
+        )
+        self._indicator_thread.start()
+
+    def _update_indicator(self, label: str) -> None:
+        with self._lock:
+            self._indicator_label = label.strip() or "Recording"
+
+    def _stop_indicator(self) -> None:
+        self._indicator_stop.set()
+        if self._indicator_thread and self._indicator_thread.is_alive():
+            self._indicator_thread.join(timeout=1)
+        self._indicator_thread = None
+
     # ── recording ─────────────────────────────────────────────────────
 
     def start_recording(self) -> None:
@@ -142,7 +180,7 @@ class Fcitx5Helper:
             ok = ctl.start_recording()
             if ok:
                 self.emit("recording-on")
-                self.emit("status:Vibetype recording...")
+                self._start_indicator()
             else:
                 with self._lock:
                     self._recording = False
@@ -161,7 +199,8 @@ class Fcitx5Helper:
             self._recording = False
 
         try:
-            self.emit("status:Vibetype stopping...")
+            self._stop_indicator()
+            self.emit("status:⏳ Processing...")
             ctl = self.ensure_controller()
             ctl.stop_recording()
             self.emit("recording-off")
@@ -173,10 +212,25 @@ class Fcitx5Helper:
     # ── callbacks (called from VibetypeController's RPC reader thread) ─
 
     def _on_commit(self, text: str) -> None:
+        self._stop_indicator()
         self.emit(f"commit:{text}")
         self.emit("status:Vibetype done")
 
     def _on_status(self, text: str) -> None:
+        if text == "recording":
+            self._update_indicator("Recording")
+            return
+        if text.startswith("partial: "):
+            partial = text[len("partial: ") :].strip()
+            self._update_indicator(partial or "Recording")
+            return
+        if text in {"stopping", "waiting final result"}:
+            self._stop_indicator()
+            self.emit("status:⏳ Processing...")
+            return
+        if text in {"paused", "final result ready"}:
+            self._stop_indicator()
+            return
         self.emit(f"status:{text}")
 
     # ── main loop ─────────────────────────────────────────────────────
@@ -206,6 +260,7 @@ class Fcitx5Helper:
                 self.log(f"Unknown command: {line}")
 
         self.log("Vibetype Fcitx5 helper exiting")
+        self._stop_indicator()
         if self.controller:
             try:
                 if self._recording:

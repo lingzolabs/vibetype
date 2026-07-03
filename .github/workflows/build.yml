@@ -87,85 +87,12 @@ jobs:
           path: build/*.tar.gz
           if-no-files-found: error
 
-      - name: Upload backend binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: vibetype-backend-${{ matrix.arch }}
-          path: build/bin/vibetype-backend
-          if-no-files-found: error
-
-  # ─── Ubuntu (aarch64 / ARM64) cross-build ─────────────────────────
-  build-ubuntu-arm64:
-    name: "Ubuntu ARM64"
-    runs-on: ubuntu-24.04-arm
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq \
-            cmake \
-            g++ \
-            git \
-            libfcitx5core-dev \
-            ninja-build \
-            python3 \
-            dpkg-dev \
-            rpm
-
-      - name: Configure
-        run: |
-          cmake -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=/usr \
-            -Wno-dev
-
-      - name: Build backend
-        run: cmake --build build --target vibetype-backend -j"$(nproc)"
-
-      - name: Build packages
-        run: cmake --build build --target package -j"$(nproc)"
-
-      - name: Upload .deb packages
-        uses: actions/upload-artifact@v4
-        with:
-          name: deb-aarch64
-          path: build/*.deb
-          if-no-files-found: error
-
-      - name: Upload .rpm packages
-        uses: actions/upload-artifact@v4
-        with:
-          name: rpm-aarch64
-          path: build/*.rpm
-          if-no-files-found: error
-
-      - name: Upload .tar.gz packages
-        uses: actions/upload-artifact@v4
-        with:
-          name: targz-aarch64
-          path: build/*.tar.gz
-          if-no-files-found: error
-
-      - name: Upload backend binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: vibetype-backend-aarch64
-          path: build/bin/vibetype-backend
-          if-no-files-found: error
-
   # ─── Create GitHub Release (on tag push) ──────────────────────────
   release:
     name: Create Release
     if: startsWith(github.ref, 'refs/tags/v')
     needs:
       - build-ubuntu
-      - build-ubuntu-arm64
     runs-on: ubuntu-24.04
     permissions:
       contents: write

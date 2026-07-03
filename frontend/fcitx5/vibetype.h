@@ -8,6 +8,7 @@
 #define VIBETYPE_FCITX5_ENGINE_H_
 
 #include <atomic>
+#include <fcitx-config/option.h>
 #include <fcitx/addonfactory.h>
 #include <fcitx/addoninstance.h>
 #include <fcitx/addonmanager.h>
@@ -26,7 +27,7 @@ class Instance;
 FCITX_CONFIGURATION(VibetypeConfig,
                      KeyListOption triggerKey{
                          this, "TriggerKey", "Trigger Key", {Key("F12")},
-                         KeyListConstrain()};
+                         KeyListConstrain(KeyConstrainFlag::AllowModifierLess)};
                      Option<int, IntConstrain> segmentSeconds{
                          this, "SegmentSeconds", "Segment Seconds", 20,
                          IntConstrain(5, 60)};

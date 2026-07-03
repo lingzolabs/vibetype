@@ -25,19 +25,19 @@ Outputs include:
 
 ```text
 # Standalone tar packages (mutually exclusive)
-build/vibetype-0.1.0-*.tar.gz
-build/vibetype-ibus-0.1.0-*.tar.gz
-build/vibetype-fcitx5-0.1.0-*.tar.gz
+build/vibetype-0.1.1-*.tar.gz
+build/vibetype-ibus-0.1.1-*.tar.gz
+build/vibetype-fcitx5-0.1.1-*.tar.gz
 
 # Standalone Debian packages (mutually exclusive)
-build/vibetype_0.1.0_*.deb
-build/vibetype-ibus_0.1.0_*.deb
-build/vibetype-fcitx5_0.1.0_*.deb
+build/vibetype_0.1.1_*.deb
+build/vibetype-ibus_0.1.1_*.deb
+build/vibetype-fcitx5_0.1.1_*.deb
 
 # Standalone RPM packages (mutually exclusive)
-build/vibetype-0.1.0-*.rpm
-build/vibetype-ibus-0.1.0-*.rpm
-build/vibetype-fcitx5-0.1.0-*.rpm
+build/vibetype-0.1.1-*.rpm
+build/vibetype-ibus-0.1.1-*.rpm
+build/vibetype-fcitx5-0.1.1-*.rpm
 ```
 
 These three package variants are mutually exclusive. Each one is a full
@@ -46,28 +46,28 @@ package and includes its own backend/runtime files.
 Use the `.deb` packages on Debian/Ubuntu-like systems:
 
 ```bash
-sudo apt install ./build/vibetype_0.1.0_*.deb
+sudo apt install ./build/vibetype_0.1.1_*.deb
 # or
-sudo apt install ./build/vibetype-ibus_0.1.0_*.deb
+sudo apt install ./build/vibetype-ibus_0.1.1_*.deb
 # or
-sudo apt install ./build/vibetype-fcitx5_0.1.0_*.deb
+sudo apt install ./build/vibetype-fcitx5_0.1.1_*.deb
 ```
 
 Use the `.rpm` packages on RPM-based systems:
 
 ```bash
-sudo dnf install ./build/vibetype-0.1.0-*.rpm
+sudo dnf install ./build/vibetype-0.1.1-*.rpm
 # or
-sudo dnf install ./build/vibetype-ibus-0.1.0-*.rpm
+sudo dnf install ./build/vibetype-ibus-0.1.1-*.rpm
 # or
-sudo dnf install ./build/vibetype-fcitx5-0.1.0-*.rpm
+sudo dnf install ./build/vibetype-fcitx5-0.1.1-*.rpm
 ```
 
 Use one `.tar.gz` package variant on other distributions:
 
 ```bash
-tar -tf build/vibetype-0.1.0-*.tar.gz
-sudo tar -C / -xzf build/vibetype-0.1.0-*.tar.gz
+tar -tf build/vibetype-0.1.1-*.tar.gz
+sudo tar -C / -xzf build/vibetype-0.1.1-*.tar.gz
 systemctl --user daemon-reload
 systemctl --user enable --now vibetype-backend.service
 ```
@@ -75,10 +75,10 @@ systemctl --user enable --now vibetype-backend.service
 For the IBus / Fcitx5 tar variants:
 
 ```bash
-sudo tar -C / -xzf build/vibetype-ibus-0.1.0-*.tar.gz
+sudo tar -C / -xzf build/vibetype-ibus-0.1.1-*.tar.gz
 ibus restart
 
-sudo tar -C / -xzf build/vibetype-fcitx5-0.1.0-*.tar.gz
+sudo tar -C / -xzf build/vibetype-fcitx5-0.1.1-*.tar.gz
 fcitx5 -rd
 ```
 
@@ -136,7 +136,10 @@ The package installs:
 /usr/share/ibus/component/vibetype.xml
 ```
 
-See `ibus-frontend.md` for no-IBus protocol tests and manual IBus engine testing.
+IBus settings are stored in `${XDG_CONFIG_HOME:-$HOME/.config}/vibetype/ibus.conf`.
+Open the setup dialog with `vibetype-ibus --setup`.
+
+See `ibus-frontend.md` for configuration, no-IBus protocol tests, and manual IBus engine testing.
 
 ## Fcitx5 frontend
 

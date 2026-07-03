@@ -1,5 +1,41 @@
 # IBus Frontend
 
+## Configuration
+
+IBus frontend settings are stored in:
+
+```text
+${XDG_CONFIG_HOME:-$HOME/.config}/vibetype/ibus.conf
+```
+
+You can open the setup dialog with:
+
+```bash
+/usr/bin/vibetype-ibus --setup
+```
+
+Or edit the config file manually:
+
+```ini
+[ibus]
+TriggerKey=F12
+SegmentSeconds=20
+SocketPath=
+AudioDevice=default
+```
+
+`TriggerKey` uses IBus key-string syntax. Examples:
+
+- `F12`
+- `Control+F12`
+- `Alt+space`
+- `Super+space`
+
+When `SocketPath` is empty, the frontend uses
+`$XDG_RUNTIME_DIR/vibetype/vibetype.sock`.
+
+Command-line flags still override config-file values.
+
 ## Run without IBus integration
 
 Start a fake backend:
@@ -51,7 +87,7 @@ Record once from ALSA default input, then submit to the backend:
   --no-wait-model
 ```
 
-The frontend reads raw PCM from `arecord -D default -f S16_LE -r 16000 -c 1 -t raw`, writes 16 kHz mono PCM16 WAV, then sends the WAV path to the backend.
+The frontend reads raw PCM from `arecord -D <audio-device> -f S16_LE -r 16000 -c 1 -t raw`, writes 16 kHz mono PCM16 WAV, then sends the WAV path to the backend.
 
 ## Test with real backend model
 
@@ -80,7 +116,7 @@ Start the backend first, then run:
 ./frontend/ibus/vibetype_ibus.py --ibus --socket /tmp/vibetype.sock
 ```
 
-F12 toggles recording. Partial results are displayed as auxiliary text. Final text is committed to the focused application.
+The configured trigger key toggles recording. During recording, IBus shows a dynamic preedit/auxiliary indicator in the current input context. Partial results are displayed as status text only, and final text is committed to the focused application.
 
 ## Installed IBus component
 
@@ -89,6 +125,12 @@ The package installs:
 ```text
 /usr/bin/vibetype-ibus
 /usr/share/ibus/component/vibetype.xml
+```
+
+The component setup action launches:
+
+```bash
+/usr/bin/vibetype-ibus --setup
 ```
 
 After installation, restart IBus or reload components:
