@@ -83,19 +83,26 @@ cmake -B build -DVIBETYPE_USE_SYSTEM_XTILS=ON
 
 ## Packages
 
-CPack generates split packages:
+CPack generates standalone package variants:
 
 ```text
 vibetype-*.tar.gz
-vibetype-ibus-addon-*.tar.gz
-vibetype-fcitx5-addon-*.tar.gz
+vibetype-ibus-*.tar.gz
+vibetype-fcitx5-*.tar.gz
 
 vibetype_*.deb
 vibetype-ibus_*.deb
 vibetype-fcitx5_*.deb
+
+vibetype-*.rpm
+vibetype-ibus-*.rpm
+vibetype-fcitx5-*.rpm
 ```
 
-Install the core package only:
+These three package variants are mutually exclusive. Each one is a full
+package and includes its own backend/runtime files.
+
+Install one tar package variant:
 
 ```bash
 sudo tar -C / -xzf build/vibetype-*.tar.gz
@@ -103,25 +110,17 @@ systemctl --user daemon-reload
 systemctl --user enable --now vibetype-backend.service
 ```
 
-Install core + IBus:
+Or install the IBus / Fcitx5 variants:
 
 ```bash
-sudo tar -C / -xzf build/vibetype-*.tar.gz
-sudo tar -C / -xzf build/vibetype-ibus-addon-*.tar.gz
-systemctl --user daemon-reload
-systemctl --user enable --now vibetype-backend.service
+sudo tar -C / -xzf build/vibetype-ibus-*.tar.gz
 ibus restart
-```
 
-Install core + Fcitx5:
-
-```bash
-sudo tar -C / -xzf build/vibetype-*.tar.gz
-sudo tar -C / -xzf build/vibetype-fcitx5-addon-*.tar.gz
-systemctl --user daemon-reload
-systemctl --user enable --now vibetype-backend.service
+sudo tar -C / -xzf build/vibetype-fcitx5-*.tar.gz
 fcitx5 -rd
 ```
+
+On RPM-based systems, install one matching `.rpm` variant instead.
 
 ## CLI usage
 

@@ -416,7 +416,7 @@ MVP 完成时需要满足：
 10. 前端只在收到 final result 后一次性 commit。
 11. Fcitx5 前端复用同一 JSON-RPC 2.0 协议。
 12. 模型缺失时后端仍可启动，前端能看到 `modelStatus` 非 ready 并提示用户。
-13. CMake 可以生成 `.deb` 和 `.tar.gz`；Arch Linux 使用 tar 包安装。
+13. CMake 可以生成 `.deb`、`.rpm` 和 `.tar.gz` 包。
 
 ## 13. Open Questions
 

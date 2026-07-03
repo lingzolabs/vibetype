@@ -59,11 +59,12 @@
 
 ## Packaging Notes
 
-- Keep package components split as `cli`, `ibus`, and `fcitx5`.
-- Put backend, CLI executable, shared Python, systemd service, and core docs in `vibetype`.
-- Put IBus executable/component and IBus docs in `vibetype-ibus`.
-- Put the Fcitx5 addon library, input-method metadata, helper, and Fcitx5 docs in `vibetype-fcitx5`.
-- Generate both `.tar.gz` and `.deb` packages with CPack.
+- Keep package variants as `vibetype`, `vibetype-ibus`, and `vibetype-fcitx5`.
+- Make each package variant standalone and mutually exclusive; do not make `vibetype-ibus` or `vibetype-fcitx5` depend on `vibetype`.
+- Put backend, CLI executable, shared Python, systemd service, and core docs in all package variants.
+- Add IBus executable/component and IBus docs only to `vibetype-ibus`.
+- Add the Fcitx5 addon library, input-method metadata, helper, and Fcitx5 docs only to `vibetype-fcitx5`.
+- Generate `.tar.gz`, `.deb`, and `.rpm` packages with CPack.
 
 ## Workflow Tips
 

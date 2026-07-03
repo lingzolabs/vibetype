@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
 
-  # ─── Ubuntu (x86_64): .deb + .tar.gz ───────────────────────────────
+  # ─── Ubuntu (x86_64): .deb + .rpm + .tar.gz ───────────────────────
   build-ubuntu:
     name: "Ubuntu x86_64"
     runs-on: ubuntu-24.04
@@ -38,7 +38,8 @@ jobs:
             ninja-build \
             python3 \
             python3-gi \
-            dpkg-dev
+            dpkg-dev \
+            rpm
 
       - name: Configure
         run: |
@@ -57,19 +58,26 @@ jobs:
           python3 -m py_compile frontend/ibus/vibetype_ibus.py
           python3 -m py_compile frontend/fcitx5/vibetype_fcitx5_helper.py
 
-      - name: Build packages (.deb + .tar.gz)
+      - name: Build packages (.deb + .rpm + .tar.gz)
         run: cmake --build build --target package -j"$(nproc)"
 
       - name: List built packages
         run: |
           echo "=== Built artifacts ==="
-          find build -maxdepth 1 \( -name '*.deb' -o -name '*.tar.gz' \) -ls
+          find build -maxdepth 1 \( -name '*.deb' -o -name '*.rpm' -o -name '*.tar.gz' \) -ls
 
       - name: Upload .deb packages
         uses: actions/upload-artifact@v4
         with:
           name: deb-${{ matrix.arch }}
           path: build/*.deb
+          if-no-files-found: error
+
+      - name: Upload .rpm packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-${{ matrix.arch }}
+          path: build/*.rpm
           if-no-files-found: error
 
       - name: Upload .tar.gz packages
@@ -107,7 +115,8 @@ jobs:
             libfcitx5core-dev \
             ninja-build \
             python3 \
-            dpkg-dev
+            dpkg-dev \
+            rpm
 
       - name: Configure
         run: |
@@ -129,6 +138,13 @@ jobs:
           path: build/*.deb
           if-no-files-found: error
 
+      - name: Upload .rpm packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-aarch64
+          path: build/*.rpm
+          if-no-files-found: error
+
       - name: Upload .tar.gz packages
         uses: actions/upload-artifact@v4
         with:
@@ -143,121 +159,6 @@ jobs:
           path: build/bin/vibetype-backend
           if-no-files-found: error
 
-  # ─── Arch Linux: .tar.gz (CPack in Arch container) ────────────────
-  build-arch:
-    name: "Arch Linux x86_64"
-    runs-on: ubuntu-24.04
-    container:
-      image: archlinux/archlinux:latest
-      options: --user root
-
-    steps:
-      - name: Install system dependencies
-        run: |
-          pacman -Syu --noconfirm \
-            base-devel \
-            cmake \
-            fcitx5 \
-            git \
-            ninja \
-            python \
-            alsa-lib
-
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Configure
-        run: |
-          cmake -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=/usr \
-            -Wno-dev
-
-      - name: Build backend
-        run: cmake --build build --target vibetype-backend -j"$(nproc)"
-
-      - name: Check Python syntax
-        run: |
-          python3 -m py_compile frontend/common/vibetype_client.py
-          python3 -m py_compile frontend/cli/vibetype_cli.py
-          python3 -m py_compile frontend/ibus/vibetype_ibus.py
-          python3 -m py_compile frontend/fcitx5/vibetype_fcitx5_helper.py
-
-      - name: Build packages (.tar.gz via CPack)
-        run: cmake --build build --target package -j"$(nproc)"
-
-      - name: List built packages
-        run: |
-          echo "=== Arch artifacts ==="
-          find build -maxdepth 1 -name '*.tar.gz' -ls
-
-      - name: Upload .tar.gz packages
-        uses: actions/upload-artifact@v4
-        with:
-          name: targz-arch-x86_64
-          path: build/*.tar.gz
-          if-no-files-found: error
-
-  # ─── Arch Linux: native .pkg.tar.zst via makepkg ──────────────────
-  build-arch-pkg:
-    name: "Arch Linux native package"
-    runs-on: ubuntu-24.04
-    container:
-      image: archlinux/archlinux:latest
-      options: --user root
-
-    steps:
-      - name: Prepare system
-        run: |
-          pacman -Syu --noconfirm \
-            base-devel \
-            cmake \
-            fcitx5 \
-            git \
-            ninja \
-            python \
-            alsa-lib \
-            sudo
-          useradd -m builder
-          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-          echo "MAKEFLAGS=-j\$(nproc)" >> /etc/makepkg.conf
-
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Build Arch package
-        run: |
-          # Build in a temp directory to avoid polluting the checkout
-          BUILDDIR="/tmp/archbuild"
-          mkdir -p "${BUILDDIR}/src/vibetype"
-          # Copy source using tar (avoids rsync dependency)
-          cd "${GITHUB_WORKSPACE}"
-          tar --exclude='.git' --exclude='build' \
-              --exclude='__pycache__' --exclude='*.pyc' \
-              -cf - . | tar xf - -C "${BUILDDIR}/src/vibetype"
-          cp "${BUILDDIR}/src/vibetype/packaging/archlinux/PKGBUILD.ci" "${BUILDDIR}/PKGBUILD"
-          chown -R builder:builder "${BUILDDIR}"
-          # Build as non-root
-          su builder -c "cd ${BUILDDIR} && makepkg -s --noconfirm --needed"
-          # Copy packages back to workspace
-          cp "${BUILDDIR}"/*.pkg.tar.zst "${GITHUB_WORKSPACE}/" 2>/dev/null || true
-
-      - name: List built packages
-        run: |
-          echo "=== Arch native packages ==="
-          ls -lh *.pkg.tar.zst 2>/dev/null || echo "No .pkg.tar.zst found"
-
-      - name: Upload Arch native packages
-        uses: actions/upload-artifact@v4
-        with:
-          name: arch-x86_64
-          path: '*.pkg.tar.zst'
-          if-no-files-found: warn
-
   # ─── Create GitHub Release (on tag push) ──────────────────────────
   release:
     name: Create Release
@@ -265,13 +166,16 @@ jobs:
     needs:
       - build-ubuntu
       - build-ubuntu-arm64
-      - build-arch
-      - build-arch-pkg
     runs-on: ubuntu-24.04
     permissions:
       contents: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:

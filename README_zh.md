@@ -83,19 +83,25 @@ cmake -B build -DVIBETYPE_USE_SYSTEM_XTILS=ON
 
 ## 包拆分
 
-CPack 会生成拆分包：
+CPack 会生成互斥的独立包：
 
 ```text
 vibetype-*.tar.gz
-vibetype-ibus-addon-*.tar.gz
-vibetype-fcitx5-addon-*.tar.gz
+vibetype-ibus-*.tar.gz
+vibetype-fcitx5-*.tar.gz
 
 vibetype_*.deb
 vibetype-ibus_*.deb
 vibetype-fcitx5_*.deb
+
+vibetype-*.rpm
+vibetype-ibus-*.rpm
+vibetype-fcitx5-*.rpm
 ```
 
-只安装核心包：
+这三个包是互斥的。每个包都是整包，都会自带 backend 和运行时文件。
+
+安装一个 tar 包变体：
 
 ```bash
 sudo tar -C / -xzf build/vibetype-*.tar.gz
@@ -103,25 +109,17 @@ systemctl --user daemon-reload
 systemctl --user enable --now vibetype-backend.service
 ```
 
-安装核心包 + IBus：
+安装 IBus / Fcitx5 变体：
 
 ```bash
-sudo tar -C / -xzf build/vibetype-*.tar.gz
-sudo tar -C / -xzf build/vibetype-ibus-addon-*.tar.gz
-systemctl --user daemon-reload
-systemctl --user enable --now vibetype-backend.service
+sudo tar -C / -xzf build/vibetype-ibus-*.tar.gz
 ibus restart
-```
 
-安装核心包 + Fcitx5：
-
-```bash
-sudo tar -C / -xzf build/vibetype-*.tar.gz
-sudo tar -C / -xzf build/vibetype-fcitx5-addon-*.tar.gz
-systemctl --user daemon-reload
-systemctl --user enable --now vibetype-backend.service
+sudo tar -C / -xzf build/vibetype-fcitx5-*.tar.gz
 fcitx5 -rd
 ```
+
+在 RPM 系发行版上，安装对应的 `.rpm` 变体即可。
 
 ## CLI 用法
 

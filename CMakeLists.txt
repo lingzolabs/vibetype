@@ -63,31 +63,37 @@ if(BUILD_FCITX5_ADDON)
   endif()
 endif()
 
-# Package split:
-# - cli: backend + CLI + shared Python client + user systemd service + docs.
-# - ibus: IBus frontend add-on; install together with cli.
-# - fcitx5: Fcitx5 frontend add-on; install together with cli.
-install(TARGETS vibetype-backend
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-        COMPONENT cli)
-install(PROGRAMS frontend/cli/vibetype_cli.py
-        DESTINATION ${CMAKE_INSTALL_BINDIR}
-        RENAME vibetype-cli
-        COMPONENT cli)
-install(FILES frontend/common/vibetype_client.py
-        DESTINATION ${CMAKE_INSTALL_DATADIR}/vibetype/python
-        COMPONENT cli)
-install(FILES packaging/systemd/vibetype-backend.service
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/systemd/user
-        COMPONENT cli)
-install(FILES
-          README.md
-          README_zh.md
-          docs/cli.md
-          docs/install.md
-          docs/vibetype-spec.md
-        DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/vibetype
-        COMPONENT cli)
+# Package variants:
+# - cli: standalone backend + CLI package.
+# - ibus: standalone backend + CLI + IBus package.
+# - fcitx5: standalone backend + CLI + Fcitx5 package.
+function(vibetype_install_core component_name)
+  install(TARGETS vibetype-backend
+          RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+          COMPONENT ${component_name})
+  install(PROGRAMS frontend/cli/vibetype_cli.py
+          DESTINATION ${CMAKE_INSTALL_BINDIR}
+          RENAME vibetype-cli
+          COMPONENT ${component_name})
+  install(FILES frontend/common/vibetype_client.py
+          DESTINATION ${CMAKE_INSTALL_DATADIR}/vibetype/python
+          COMPONENT ${component_name})
+  install(FILES packaging/systemd/vibetype-backend.service
+          DESTINATION ${CMAKE_INSTALL_LIBDIR}/systemd/user
+          COMPONENT ${component_name})
+  install(FILES
+            README.md
+            README_zh.md
+            docs/cli.md
+            docs/install.md
+            docs/vibetype-spec.md
+          DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/vibetype
+          COMPONENT ${component_name})
+endfunction()
+
+vibetype_install_core(cli)
+vibetype_install_core(ibus)
+vibetype_install_core(fcitx5)
 
 install(PROGRAMS frontend/ibus/vibetype_ibus.py
         DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -109,27 +115,25 @@ set(CPACK_PACKAGE_VENDOR "Vibetype")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Linux voice input method")
 set(CPACK_PACKAGE_VERSION "0.1.0")
 set(CPACK_PACKAGE_CONTACT "Vibetype Maintainers")
-set(CPACK_GENERATOR "TGZ;DEB")
+set(CPACK_GENERATOR "TGZ;DEB;RPM")
 set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${CMAKE_SYSTEM_PROCESSOR}")
 
 set(CPACK_COMPONENTS_ALL cli ibus fcitx5)
-set(CPACK_COMPONENT_CLI_DISPLAY_NAME "Vibetype core")
-set(CPACK_COMPONENT_CLI_DESCRIPTION "Vibetype backend, CLI frontend, shared Python code, systemd user service, and documentation")
-set(CPACK_COMPONENT_IBUS_DISPLAY_NAME "Vibetype IBus frontend")
-set(CPACK_COMPONENT_IBUS_DESCRIPTION "IBus frontend add-on for Vibetype; install together with vibetype")
-set(CPACK_COMPONENT_IBUS_DEPENDS cli)
-set(CPACK_COMPONENT_FCITX5_DISPLAY_NAME "Vibetype Fcitx5 frontend")
-set(CPACK_COMPONENT_FCITX5_DESCRIPTION "Fcitx5 frontend add-on for Vibetype; install together with vibetype")
-set(CPACK_COMPONENT_FCITX5_DEPENDS cli)
+set(CPACK_COMPONENT_CLI_DISPLAY_NAME "Vibetype CLI")
+set(CPACK_COMPONENT_CLI_DESCRIPTION "Standalone Vibetype backend and CLI package")
+set(CPACK_COMPONENT_IBUS_DISPLAY_NAME "Vibetype IBus")
+set(CPACK_COMPONENT_IBUS_DESCRIPTION "Standalone Vibetype backend, CLI, and IBus package")
+set(CPACK_COMPONENT_FCITX5_DISPLAY_NAME "Vibetype Fcitx5")
+set(CPACK_COMPONENT_FCITX5_DESCRIPTION "Standalone Vibetype backend, CLI, and Fcitx5 package")
 set(CPACK_COMPONENTS_GROUPING IGNORE)
 
 set(CPACK_ARCHIVE_COMPONENT_INSTALL ON)
 set(CPACK_ARCHIVE_CLI_FILE_NAME "vibetype-${CPACK_PACKAGE_VERSION}-${CMAKE_SYSTEM_PROCESSOR}")
-set(CPACK_ARCHIVE_IBUS_FILE_NAME "vibetype-ibus-addon-${CPACK_PACKAGE_VERSION}-${CMAKE_SYSTEM_PROCESSOR}")
-set(CPACK_ARCHIVE_FCITX5_FILE_NAME "vibetype-fcitx5-addon-${CPACK_PACKAGE_VERSION}-${CMAKE_SYSTEM_PROCESSOR}")
+set(CPACK_ARCHIVE_IBUS_FILE_NAME "vibetype-ibus-${CPACK_PACKAGE_VERSION}-${CMAKE_SYSTEM_PROCESSOR}")
+set(CPACK_ARCHIVE_FCITX5_FILE_NAME "vibetype-fcitx5-${CPACK_PACKAGE_VERSION}-${CMAKE_SYSTEM_PROCESSOR}")
 
 set(CPACK_DEB_COMPONENT_INSTALL ON)
-set(CPACK_DEBIAN_ENABLE_COMPONENT_DEPENDS ON)
+set(CPACK_DEBIAN_ENABLE_COMPONENT_DEPENDS OFF)
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Vibetype Maintainers")
 set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
@@ -137,13 +141,34 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
   set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
 endif()
 set(CPACK_DEBIAN_CLI_PACKAGE_NAME "vibetype")
-set(CPACK_DEBIAN_CLI_PACKAGE_DESCRIPTION "Vibetype core package with backend and CLI frontend")
+set(CPACK_DEBIAN_CLI_PACKAGE_DESCRIPTION "Standalone Vibetype backend and CLI package")
 set(CPACK_DEBIAN_CLI_PACKAGE_DEPENDS "curl, python3, alsa-utils, wl-clipboard, xclip, xdotool")
+set(CPACK_DEBIAN_CLI_PACKAGE_CONFLICTS "vibetype-ibus, vibetype-fcitx5")
 set(CPACK_DEBIAN_IBUS_PACKAGE_NAME "vibetype-ibus")
-set(CPACK_DEBIAN_IBUS_PACKAGE_DESCRIPTION "Vibetype IBus frontend add-on")
-set(CPACK_DEBIAN_IBUS_PACKAGE_DEPENDS "vibetype (= ${CPACK_PACKAGE_VERSION}), python3-gi, gir1.2-ibus-1.0, ibus")
+set(CPACK_DEBIAN_IBUS_PACKAGE_DESCRIPTION "Standalone Vibetype backend, CLI, and IBus package")
+set(CPACK_DEBIAN_IBUS_PACKAGE_DEPENDS "curl, python3, alsa-utils, wl-clipboard, xclip, xdotool, python3-gi, gir1.2-ibus-1.0, ibus")
+set(CPACK_DEBIAN_IBUS_PACKAGE_CONFLICTS "vibetype, vibetype-fcitx5")
 set(CPACK_DEBIAN_FCITX5_PACKAGE_NAME "vibetype-fcitx5")
-set(CPACK_DEBIAN_FCITX5_PACKAGE_DESCRIPTION "Vibetype Fcitx5 frontend add-on")
-set(CPACK_DEBIAN_FCITX5_PACKAGE_DEPENDS "vibetype (= ${CPACK_PACKAGE_VERSION}), fcitx5, python3")
+set(CPACK_DEBIAN_FCITX5_PACKAGE_DESCRIPTION "Standalone Vibetype backend, CLI, and Fcitx5 package")
+set(CPACK_DEBIAN_FCITX5_PACKAGE_DEPENDS "curl, python3, alsa-utils, wl-clipboard, xclip, xdotool, fcitx5")
+set(CPACK_DEBIAN_FCITX5_PACKAGE_CONFLICTS "vibetype, vibetype-ibus")
 set(CPACK_DEBIAN_FCITX5_PACKAGE_SUGGESTS "python3-gi")
+
+set(CPACK_RPM_COMPONENT_INSTALL ON)
+set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
+set(CPACK_RPM_PACKAGE_LICENSE "MIT")
+set(CPACK_RPM_PACKAGE_GROUP "Applications/System")
+set(CPACK_RPM_PACKAGE_URL "https://github.com/lingzolabs/vibetype")
+set(CPACK_RPM_CLI_PACKAGE_NAME "vibetype")
+set(CPACK_RPM_CLI_PACKAGE_DESCRIPTION "Standalone Vibetype backend and CLI package")
+set(CPACK_RPM_CLI_PACKAGE_REQUIRES "curl, python3, alsa-utils, wl-clipboard, xclip, xdotool")
+set(CPACK_RPM_CLI_PACKAGE_CONFLICTS "vibetype-ibus, vibetype-fcitx5")
+set(CPACK_RPM_IBUS_PACKAGE_NAME "vibetype-ibus")
+set(CPACK_RPM_IBUS_PACKAGE_DESCRIPTION "Standalone Vibetype backend, CLI, and IBus package")
+set(CPACK_RPM_IBUS_PACKAGE_REQUIRES "curl, python3, alsa-utils, wl-clipboard, xclip, xdotool, python3-gobject, ibus")
+set(CPACK_RPM_IBUS_PACKAGE_CONFLICTS "vibetype, vibetype-fcitx5")
+set(CPACK_RPM_FCITX5_PACKAGE_NAME "vibetype-fcitx5")
+set(CPACK_RPM_FCITX5_PACKAGE_DESCRIPTION "Standalone Vibetype backend, CLI, and Fcitx5 package")
+set(CPACK_RPM_FCITX5_PACKAGE_REQUIRES "curl, python3, alsa-utils, wl-clipboard, xclip, xdotool, fcitx5")
+set(CPACK_RPM_FCITX5_PACKAGE_CONFLICTS "vibetype, vibetype-ibus")
 include(CPack)
