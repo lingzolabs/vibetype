@@ -1,0 +1,91 @@
+# Local build PKGBUILD — use when the repo is checked out locally.
+# Copy into a temp directory (outside the source tree) and run:
+#
+#   cp -r /path/to/vibetype src/vibetype
+#   makepkg -si
+#
+# Or for a quick one-liner:
+#
+#   ln -s /path/to/vibetype src/vibetype && makepkg -si
+
+pkgname=("vibetype" "vibetype-ibus")
+pkgbase="vibetype"
+pkgver="0.1.0"
+pkgrel=1
+pkgdesc="Linux voice input method with local offline ASR (SenseVoice GGUF)"
+arch=("x86_64")
+url="https://github.com/lingzolabs/vibetype"
+license=("MIT")
+depends=(
+  "alsa-utils"
+  "curl"
+  "gcc-libs"
+  "glibc"
+  "python"
+)
+makedepends=(
+  "cmake"
+  "git"
+  "ninja"
+)
+optdepends=(
+  "wl-clipboard: clipboard paste on Wayland"
+  "xclip: clipboard paste on X11"
+  "xdotool: keyboard paste on X11"
+)
+source=("vibetype::file:///dev/null")
+sha256sums=("SKIP")
+
+prepare() {
+  # Expects src/vibetype/ to be a symlink or copy of the real source tree
+  if [[ ! -d "${srcdir}/${pkgbase}/.git" ]]; then
+    error "Please symlink or copy your local vibetype checkout to: ${srcdir}/${pkgbase}"
+    exit 1
+  fi
+}
+
+build() {
+  cd "${srcdir}/${pkgbase}"
+  cmake -B build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_SKIP_RPATH=ON \
+    -DCMAKE_CXX_FLAGS="${CXXFLAGS} -fno-strict-aliasing" \
+    -Wno-dev
+  cmake --build build --target vibetype-backend -j"$(nproc)"
+}
+
+check() {
+  cd "${srcdir}/${pkgbase}"
+  python -m py_compile frontend/common/vibetype_client.py
+  python -m py_compile frontend/cli/vibetype_cli.py
+  python -m py_compile frontend/ibus/vibetype_ibus.py
+}
+
+package_vibetype() {
+  depends=(
+    "alsa-utils"
+    "curl"
+    "gcc-libs"
+    "glibc"
+    "python"
+  )
+  optdepends=(
+    "vibetype-ibus: IBus frontend"
+    "wl-clipboard: clipboard paste on Wayland"
+    "xclip: clipboard paste on X11"
+    "xdotool: keyboard paste on X11"
+  )
+
+  cd "${srcdir}/${pkgbase}"
+  DESTDIR="${pkgdir}" cmake --install build --component cli
+  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgbase}/LICENSE"
+}
+
+package_vibetype_ibus() {
+  depends=("vibetype=${pkgver}" "ibus" "python-gobject")
+
+  cd "${srcdir}/${pkgbase}"
+  DESTDIR="${pkgdir}" cmake --install build --component ibus
+  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/vibetype-ibus/LICENSE"
+}

@@ -1,0 +1,94 @@
+# Maintainer: Lingzo Labs <dev@lingzo.com>
+# Contributor: Vibetype Maintainers
+
+pkgname=("vibetype" "vibetype-ibus")
+pkgbase="vibetype"
+pkgver="0.1.0"
+pkgrel=1
+pkgdesc="Linux voice input method with local offline ASR (SenseVoice GGUF)"
+arch=("x86_64")
+url="https://github.com/lingzolabs/vibetype"
+license=("MIT")
+depends=(
+  "alsa-utils"
+  "curl"
+  "gcc-libs"
+  "glibc"
+  "python"
+)
+makedepends=(
+  "cmake"
+  "git"
+  "ninja"
+)
+optdepends=(
+  "wl-clipboard: clipboard paste on Wayland"
+  "xclip: clipboard paste on X11"
+  "xdotool: keyboard paste on X11"
+)
+source=("${pkgbase}::git+${url}.git")
+sha256sums=("SKIP")
+validpgpkeys=()
+
+pkgver() {
+  cd "${srcdir}/${pkgbase}"
+  git describe --always --tags --dirty 2>/dev/null || echo "${pkgver}"
+}
+
+prepare() {
+  cd "${srcdir}/${pkgbase}"
+}
+
+build() {
+  cd "${srcdir}/${pkgbase}"
+  cmake -B build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_SKIP_RPATH=ON \
+    -DCMAKE_CXX_FLAGS="${CXXFLAGS} -fno-strict-aliasing" \
+    -Wno-dev
+  cmake --build build --target vibetype-backend -j"$(nproc)"
+}
+
+check() {
+  cd "${srcdir}/${pkgbase}"
+  # Python syntax check
+  python -m py_compile frontend/common/vibetype_client.py
+  python -m py_compile frontend/cli/vibetype_cli.py
+  python -m py_compile frontend/ibus/vibetype_ibus.py
+}
+
+package_vibetype() {
+  depends=(
+    "alsa-utils"
+    "curl"
+    "gcc-libs"
+    "glibc"
+    "python"
+  )
+  optdepends=(
+    "vibetype-ibus: IBus frontend"
+    "wl-clipboard: clipboard paste on Wayland"
+    "xclip: clipboard paste on X11"
+    "xdotool: keyboard paste on X11"
+  )
+
+  cd "${srcdir}/${pkgbase}"
+
+  DESTDIR="${pkgdir}" cmake --install build --component cli
+
+  # Install license
+  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgbase}/LICENSE"
+}
+
+package_vibetype_ibus() {
+  depends=("vibetype=${pkgver}" "ibus" "python-gobject")
+  optdepends=()
+
+  cd "${srcdir}/${pkgbase}"
+
+  DESTDIR="${pkgdir}" cmake --install build --component ibus
+
+  # Install license
+  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/vibetype-ibus/LICENSE"
+}

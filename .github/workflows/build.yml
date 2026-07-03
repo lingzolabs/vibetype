@@ -1,0 +1,283 @@
+name: Build & Package
+
+on:
+  push:
+    branches: ["master"]
+    tags: ["v*"]
+  pull_request:
+    branches: ["master"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # ─── Ubuntu (x86_64): .deb + .tar.gz ───────────────────────────────
+  build-ubuntu:
+    name: "Ubuntu x86_64"
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        arch: [x86_64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            cmake \
+            g++ \
+            git \
+            ninja-build \
+            python3 \
+            python3-gi \
+            dpkg-dev
+
+      - name: Configure
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -Wno-dev
+
+      - name: Build backend
+        run: cmake --build build --target vibetype-backend -j"$(nproc)"
+
+      - name: Check Python syntax
+        run: |
+          python3 -m py_compile frontend/common/vibetype_client.py
+          python3 -m py_compile frontend/cli/vibetype_cli.py
+          python3 -m py_compile frontend/ibus/vibetype_ibus.py
+
+      - name: Build packages (.deb + .tar.gz)
+        run: cmake --build build --target package -j"$(nproc)"
+
+      - name: List built packages
+        run: |
+          echo "=== Built artifacts ==="
+          find build -maxdepth 1 \( -name '*.deb' -o -name '*.tar.gz' \) -ls
+
+      - name: Upload .deb packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}
+          path: build/*.deb
+          if-no-files-found: error
+
+      - name: Upload .tar.gz packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: targz-${{ matrix.arch }}
+          path: build/*.tar.gz
+          if-no-files-found: error
+
+      - name: Upload backend binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibetype-backend-${{ matrix.arch }}
+          path: build/bin/vibetype-backend
+          if-no-files-found: error
+
+  # ─── Ubuntu (aarch64 / ARM64) cross-build ─────────────────────────
+  build-ubuntu-arm64:
+    name: "Ubuntu ARM64"
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            cmake \
+            g++ \
+            git \
+            ninja-build \
+            python3 \
+            dpkg-dev
+
+      - name: Configure
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -Wno-dev
+
+      - name: Build backend
+        run: cmake --build build --target vibetype-backend -j"$(nproc)"
+
+      - name: Build packages
+        run: cmake --build build --target package -j"$(nproc)"
+
+      - name: Upload .deb packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-aarch64
+          path: build/*.deb
+          if-no-files-found: error
+
+      - name: Upload .tar.gz packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: targz-aarch64
+          path: build/*.tar.gz
+          if-no-files-found: error
+
+      - name: Upload backend binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibetype-backend-aarch64
+          path: build/bin/vibetype-backend
+          if-no-files-found: error
+
+  # ─── Arch Linux: .tar.gz (CPack in Arch container) ────────────────
+  build-arch:
+    name: "Arch Linux x86_64"
+    runs-on: ubuntu-24.04
+    container:
+      image: archlinux/archlinux:latest
+      options: --user root
+
+    steps:
+      - name: Install system dependencies
+        run: |
+          pacman -Syu --noconfirm \
+            base-devel \
+            cmake \
+            git \
+            ninja \
+            python \
+            alsa-lib
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -Wno-dev
+
+      - name: Build backend
+        run: cmake --build build --target vibetype-backend -j"$(nproc)"
+
+      - name: Check Python syntax
+        run: |
+          python3 -m py_compile frontend/common/vibetype_client.py
+          python3 -m py_compile frontend/cli/vibetype_cli.py
+          python3 -m py_compile frontend/ibus/vibetype_ibus.py
+
+      - name: Build packages (.tar.gz via CPack)
+        run: cmake --build build --target package -j"$(nproc)"
+
+      - name: List built packages
+        run: |
+          echo "=== Arch artifacts ==="
+          find build -maxdepth 1 -name '*.tar.gz' -ls
+
+      - name: Upload .tar.gz packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: targz-arch-x86_64
+          path: build/*.tar.gz
+          if-no-files-found: error
+
+  # ─── Arch Linux: native .pkg.tar.zst via makepkg ──────────────────
+  build-arch-pkg:
+    name: "Arch Linux native package"
+    runs-on: ubuntu-24.04
+    container:
+      image: archlinux/archlinux:latest
+      options: --user root
+
+    steps:
+      - name: Prepare system
+        run: |
+          pacman -Syu --noconfirm \
+            base-devel \
+            cmake \
+            git \
+            ninja \
+            python \
+            alsa-lib \
+            sudo
+          useradd -m builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          # Allow makepkg to run as root via sudo
+          echo "MAKEFLAGS=-j\$(nproc)" >> /etc/makepkg.conf
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build Arch package
+        run: |
+          chown -R builder:builder .
+          # Copy source into makepkg layout: src/vibetype/
+          mkdir -p src
+          cp -a . src/vibetype
+          chown -R builder:builder src
+          # Use the CI PKGBUILD that points at local source
+          cp src/vibetype/packaging/archlinux/PKGBUILD.ci PKGBUILD
+          chown builder:builder PKGBUILD
+          # Build as non-root
+          su builder -c "cd ${PWD} && makepkg -s --noconfirm --needed"
+
+      - name: List built packages
+        run: |
+          echo "=== Arch native packages ==="
+          ls -lh *.pkg.tar.zst 2>/dev/null || echo "No .pkg.tar.zst found"
+
+      - name: Upload Arch native packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: arch-x86_64
+          path: '*.pkg.tar.zst'
+          if-no-files-found: warn
+
+  # ─── Create GitHub Release (on tag push) ──────────────────────────
+  release:
+    name: Create Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - build-ubuntu
+      - build-ubuntu-arm64
+      - build-arch
+      - build-arch-pkg
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f -ls
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          gh release create "$TAG" \
+            --title "Vibetype $TAG" \
+            --notes "See [README](https://github.com/${{ github.repository }}) for install instructions." \
+            --verify-tag \
+            artifacts/**/*
