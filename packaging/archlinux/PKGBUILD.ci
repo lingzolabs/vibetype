@@ -2,7 +2,7 @@
 # Used by .github/workflows/build.yml build-arch-pkg job.
 # Not for end-user use.
 
-pkgname=("vibetype" "vibetype-ibus")
+pkgname=("vibetype" "vibetype-ibus" "vibetype-fcitx5")
 pkgbase="vibetype"
 pkgver="0.1.0"
 pkgrel=1
@@ -19,6 +19,7 @@ depends=(
 )
 makedepends=(
   "cmake"
+  "fcitx5"
   "git"
   "ninja"
 )
@@ -67,6 +68,7 @@ package_vibetype() {
   )
   optdepends=(
     "vibetype-ibus: IBus frontend"
+    "vibetype-fcitx5: Fcitx5 frontend"
     "wl-clipboard: clipboard paste on Wayland"
     "xclip: clipboard paste on X11"
     "xdotool: keyboard paste on X11"
@@ -83,4 +85,12 @@ package_vibetype_ibus() {
   cd "${srcdir}/${pkgbase}"
   DESTDIR="${pkgdir}" cmake --install build --component ibus
   install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/vibetype-ibus/LICENSE"
+}
+
+package_vibetype_fcitx5() {
+  depends=("vibetype=${pkgver}" "fcitx5" "python")
+
+  cd "${srcdir}/${pkgbase}"
+  DESTDIR="${pkgdir}" cmake --install build --component fcitx5
+  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/vibetype-fcitx5/LICENSE"
 }
