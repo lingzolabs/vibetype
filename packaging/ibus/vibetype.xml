@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<component>
+  <name>org.freedesktop.IBus.Vibetype</name>
+  <description>Vibetype voice input method</description>
+  <exec>/usr/bin/vibetype-ibus --ibus</exec>
+  <version>0.1.0</version>
+  <author>Vibetype Maintainers</author>
+  <license>MIT</license>
+  <homepage>https://github.com/lingzolabs/vibetype</homepage>
+  <textdomain>vibetype</textdomain>
+  <engines>
+    <engine>
+      <name>vibetype</name>
+      <longname>Vibetype Voice Input</longname>
+      <description>Voice input through Vibetype backend</description>
+      <language>zh</language>
+      <license>MIT</license>
+      <author>Vibetype Maintainers</author>
+      <icon>ibus-engine</icon>
+      <layout>default</layout>
+      <rank>1</rank>
+      <symbol>🎙</symbol>
+      <setup></setup>
+    </engine>
+  </engines>
+</component>

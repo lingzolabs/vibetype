@@ -1,0 +1,14 @@
+[Unit]
+Description=Vibetype ASR backend
+Documentation=https://github.com/lingzolabs/vibetype
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/vibetype-backend
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
