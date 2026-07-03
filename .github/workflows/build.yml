@@ -55,6 +55,7 @@ jobs:
           python3 -m py_compile frontend/common/vibetype_client.py
           python3 -m py_compile frontend/cli/vibetype_cli.py
           python3 -m py_compile frontend/ibus/vibetype_ibus.py
+          python3 -m py_compile frontend/fcitx5/vibetype_fcitx5_helper.py
 
       - name: Build packages (.deb + .tar.gz)
         run: cmake --build build --target package -j"$(nproc)"
@@ -182,6 +183,7 @@ jobs:
           python3 -m py_compile frontend/common/vibetype_client.py
           python3 -m py_compile frontend/cli/vibetype_cli.py
           python3 -m py_compile frontend/ibus/vibetype_ibus.py
+          python3 -m py_compile frontend/fcitx5/vibetype_fcitx5_helper.py
 
       - name: Build packages (.tar.gz via CPack)
         run: cmake --build build --target package -j"$(nproc)"

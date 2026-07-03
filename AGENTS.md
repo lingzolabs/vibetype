@@ -3,7 +3,7 @@
 ## Project Summary
 
 - Treat this repository as Vibetype, a Linux voice input method for local offline ASR.
-- Keep the backend frontend-agnostic; expose JSON-RPC over a Unix socket for CLI, IBus, and future Fcitx5 frontends.
+- Keep the backend frontend-agnostic; expose JSON-RPC over a Unix socket for CLI, IBus, and Fcitx5 frontends.
 - Prioritize Chinese and English recognition quality while preserving mixed Chinese, English, Cantonese, Japanese, and Korean support.
 - Follow `README.md`, `README_zh.md`, and `docs/vibetype-spec.md` as product, protocol, and packaging references.
 
@@ -45,7 +45,7 @@
 - Validate every segment as 16 kHz mono PCM16 WAV before ASR.
 - Keep model files under user config by default: `${XDG_CONFIG_HOME:-$HOME/.config}/vibetype/models/sensevoice-small-q8.gguf`.
 - Start backend IPC even when the model is missing; download/load the model in the background and report model status.
-- Normalize final transcript text in the backend so CLI, IBus, and future Fcitx5 behave consistently.
+- Normalize final transcript text in the backend so CLI, IBus, and Fcitx5 behave consistently.
 - Use `LogI`, `LogW`, `LogE`, and xtils logging for backend output; route third-party library logs into xtils where possible.
 - Do not modify reference upstream code or vendored dependency sources unless explicitly requested.
 
@@ -60,9 +60,9 @@
 ## Packaging Notes
 
 - Keep package components split as `cli`, `ibus`, and `fcitx5`.
-- Put backend, CLI, shared Python, systemd service, and core docs in `vibetype-cli`.
+- Put backend, CLI executable, shared Python, systemd service, and core docs in `vibetype`.
 - Put IBus executable/component and IBus docs in `vibetype-ibus`.
-- Keep `vibetype-fcitx5` as a reserved placeholder until the Fcitx5 frontend is implemented.
+- Put the Fcitx5 addon library, input-method metadata, helper, and Fcitx5 docs in `vibetype-fcitx5`.
 - Generate both `.tar.gz` and `.deb` packages with CPack.
 
 ## Workflow Tips

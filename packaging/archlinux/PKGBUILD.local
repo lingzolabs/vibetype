@@ -39,7 +39,7 @@ sha256sums=("SKIP")
 
 prepare() {
   # Expects src/vibetype/ to be a symlink or copy of the real source tree
-  if [[ ! -d "${srcdir}/${pkgbase}/.git" ]]; then
+  if [[ ! -f "${srcdir}/${pkgbase}/CMakeLists.txt" ]]; then
     error "Please symlink or copy your local vibetype checkout to: ${srcdir}/${pkgbase}"
     exit 1
   fi
@@ -53,7 +53,7 @@ build() {
     -DCMAKE_SKIP_RPATH=ON \
     -DCMAKE_CXX_FLAGS="${CXXFLAGS} -fno-strict-aliasing" \
     -Wno-dev
-  cmake --build build --target vibetype-backend -j"$(nproc)"
+  cmake --build build -j"$(nproc)"
 }
 
 check() {
@@ -61,6 +61,7 @@ check() {
   python -m py_compile frontend/common/vibetype_client.py
   python -m py_compile frontend/cli/vibetype_cli.py
   python -m py_compile frontend/ibus/vibetype_ibus.py
+  python -m py_compile frontend/fcitx5/vibetype_fcitx5_helper.py
 }
 
 package_vibetype() {
@@ -84,7 +85,7 @@ package_vibetype() {
   install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgbase}/LICENSE"
 }
 
-package_vibetype_ibus() {
+package_vibetype-ibus() {
   depends=("vibetype=${pkgver}" "ibus" "python-gobject")
 
   cd "${srcdir}/${pkgbase}"
@@ -92,7 +93,7 @@ package_vibetype_ibus() {
   install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/vibetype-ibus/LICENSE"
 }
 
-package_vibetype_fcitx5() {
+package_vibetype-fcitx5() {
   depends=("vibetype=${pkgver}" "fcitx5" "python")
 
   cd "${srcdir}/${pkgbase}"

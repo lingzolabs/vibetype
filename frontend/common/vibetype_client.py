@@ -322,6 +322,8 @@ class VibetypeController:
         commit_callback: Optional[Callable[[str], None]] = None,
         status_callback: Optional[Callable[[str], None]] = None,
         audio_device: str = "default",
+        client_name: str = "ibus-python",
+        frontend_name: str = "ibus-python",
     ):
         self.client = JsonRpcClient(socket_path)
         self.client.add_notify_handler(self._on_notify)
@@ -329,6 +331,8 @@ class VibetypeController:
         self.commit_callback = commit_callback or (lambda text: print(f"COMMIT: {text}"))
         self.status_callback = status_callback or (lambda text: print(f"STATUS: {text}"))
         self.audio_device = audio_device or "default"
+        self.client_name = client_name
+        self.frontend_name = frontend_name
         self.session_id: Optional[str] = None
         self.session_dir: Optional[Path] = None
         self.recorder: Optional[ArecordSegmentRecorder] = None
@@ -339,7 +343,7 @@ class VibetypeController:
 
     def connect(self) -> None:
         self.client.connect()
-        self.client.call("vibetype.hello", {"client": "ibus-python", "protocol_version": 1})
+        self.client.call("vibetype.hello", {"client": self.client_name, "protocol_version": 1})
 
     def close(self) -> None:
         self.client.close()
@@ -355,10 +359,11 @@ class VibetypeController:
             return False
         return True
 
-    def begin_session(self, frontend: str = "ibus-python") -> bool:
+    def begin_session(self, frontend: Optional[str] = None) -> bool:
         self.connect()
         if not self.ensure_model_ready():
             return False
+        frontend = frontend or self.frontend_name
         self.session_id = str(uuid.uuid4())
         self.session_dir = ensure_runtime_session_dir(self.session_id)
         self.segment_count = 0
@@ -405,7 +410,7 @@ class VibetypeController:
         )
 
     def start_recording(self) -> bool:
-        return self.begin_session("ibus-python") and self.start_capture()
+        return self.begin_session() and self.start_capture()
 
     def stop_recording(self) -> None:
         self.finish_session()

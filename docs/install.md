@@ -24,15 +24,15 @@ cmake --build build --target package -j$(nproc)
 Outputs include:
 
 ```text
-# CLI package: backend + CLI + shared Python + systemd user service
-build/vibetype-cli_0.1.0_*.deb
-build/vibetype-cli-0.1.0-*.tar.gz
+# Core package: backend + CLI + shared Python + systemd user service
+build/vibetype_0.1.0_*.deb
+build/vibetype-0.1.0-*.tar.gz
 
-# IBus add-on: install together with vibetype-cli
+# IBus add-on: install together with vibetype
 build/vibetype-ibus_0.1.0_*.deb
 build/vibetype-ibus-addon-0.1.0-*.tar.gz
 
-# Fcitx5 add-on placeholder: frontend not implemented yet
+# Fcitx5 add-on: install together with vibetype
 build/vibetype-fcitx5_0.1.0_*.deb
 build/vibetype-fcitx5-addon-0.1.0-*.tar.gz
 ```
@@ -40,9 +40,9 @@ build/vibetype-fcitx5-addon-0.1.0-*.tar.gz
 Use the `.deb` packages on Debian/Ubuntu-like systems:
 
 ```bash
-sudo apt install ./build/vibetype-cli_0.1.0_*.deb
+sudo apt install ./build/vibetype_0.1.0_*.deb
 sudo apt install ./build/vibetype-ibus_0.1.0_*.deb      # optional IBus frontend
-# sudo apt install ./build/vibetype-fcitx5_0.1.0_*.deb  # reserved; not implemented yet
+sudo apt install ./build/vibetype-fcitx5_0.1.0_*.deb    # optional Fcitx5 frontend
 ```
 
 Use the `.tar.gz` packages on Arch Linux or other distributions. On Arch Linux install dependencies first:
@@ -50,17 +50,20 @@ Use the `.tar.gz` packages on Arch Linux or other distributions. On Arch Linux i
 ```bash
 sudo pacman -S --needed curl python alsa-utils wl-clipboard xclip xdotool
 sudo pacman -S --needed python-gobject ibus   # optional for IBus
+sudo pacman -S --needed fcitx5                # optional for Fcitx5
 ```
 
-Then extract the CLI package and optional IBus add-on:
+Then extract the core package and the frontend add-on you want:
 
 ```bash
-tar -tf build/vibetype-cli-0.1.0-*.tar.gz
-sudo tar -C / -xzf build/vibetype-cli-0.1.0-*.tar.gz
-sudo tar -C / -xzf build/vibetype-ibus-addon-0.1.0-*.tar.gz  # optional
+tar -tf build/vibetype-0.1.0-*.tar.gz
+sudo tar -C / -xzf build/vibetype-0.1.0-*.tar.gz
+sudo tar -C / -xzf build/vibetype-ibus-addon-0.1.0-*.tar.gz    # optional
+sudo tar -C / -xzf build/vibetype-fcitx5-addon-0.1.0-*.tar.gz  # optional
 systemctl --user daemon-reload
 systemctl --user enable --now vibetype-backend.service
-ibus restart  # only when using IBus
+ibus restart    # when using IBus
+fcitx5 -rd      # when using Fcitx5
 ```
 
 ## Enable systemd user service
@@ -118,6 +121,19 @@ The package installs:
 ```
 
 See `ibus-frontend.md` for no-IBus protocol tests and manual IBus engine testing.
+
+## Fcitx5 frontend
+
+The package installs:
+
+```text
+/usr/bin/vibetype-fcitx5-helper
+/usr/lib/fcitx5/vibetype.so
+/usr/share/fcitx5/addon/vibetype.conf
+/usr/share/fcitx5/inputmethod/vibetype-inputmethod.conf
+```
+
+See `fcitx5-frontend.md` for setup, configuration, and debugging.
 
 ## CLI frontend
 

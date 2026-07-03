@@ -6,6 +6,7 @@
 
 #include "vibetype.h"
 
+#include <fcitx-config/iniparser.h>
 #include <fcitx-utils/log.h>
 #include <fcitx/inputcontext.h>
 #include <fcitx/inputpanel.h>
@@ -47,12 +48,14 @@ std::string VibetypeEngine::defaultSocketPath() {
 
 VibetypeEngine::VibetypeEngine(Instance *instance)
     : instance_(instance) {
+    dispatcher_.attach(&instance_->eventLoop());
     reloadConfig();
     startHelper();
 }
 
 VibetypeEngine::~VibetypeEngine() {
     stopHelper();
+    dispatcher_.detach();
 }
 
 // ── config ──────────────────────────────────────────────────────────
@@ -94,13 +97,9 @@ void VibetypeEngine::keyEvent(const InputMethodEntry &entry,
     if (keys.empty())
         return;
 
-    /* check if the pressed key matches the configured trigger */
-    for (const auto &k : keys) {
-        if (keyEvent.key().checkKeyList(k)) {
-            keyEvent.filterAndAccept();
-            toggleRecording();
-            return;
-        }
+    if (keyEvent.key().checkKeyList(keys)) {
+        keyEvent.filterAndAccept();
+        toggleRecording();
     }
 }
 
@@ -249,6 +248,10 @@ void VibetypeEngine::readerLoop() {
                 } else if (line == "ready") {
                     modelReady_ = true;
                     doStatus("Vibetype model ready");
+                    if (pendingStart_) {
+                        pendingStart_ = false;
+                        toggleRecording();
+                    }
                 } else if (line == "recording" || line == "recording-on") {
                     setRecordingState(true);
                 } else if (line == "recording-off" || line == "stopped") {
@@ -263,7 +266,8 @@ void VibetypeEngine::readerLoop() {
 
 void VibetypeEngine::toggleRecording() {
     if (!modelReady_) {
-        doStatus("Vibetype: model not ready");
+        pendingStart_ = true;
+        doStatus("Vibetype: model not ready, waiting...");
         sendLine("status");
         return;
     }
@@ -306,7 +310,7 @@ void VibetypeEngine::doCommit(const std::string &text) {
     if (text.empty())
         return;
     setRecordingState(false);
-    instance_->eventDispatcher().schedule([this, text]() {
+    dispatcher_.schedule([this, text]() {
         auto *ic = instance_->mostRecentInputContext();
         if (ic) {
             ic->commitString(text);
@@ -316,12 +320,12 @@ void VibetypeEngine::doCommit(const std::string &text) {
 }
 
 void VibetypeEngine::doStatus(const std::string &text) {
-    instance_->eventDispatcher().schedule([this, text]() {
+    dispatcher_.schedule([this, text]() {
         auto *ic = instance_->mostRecentInputContext();
         if (!ic)
             return;
         auto &panel = ic->inputPanel();
-        panel.setAuxiliaryText(fcitx::Text(text));
+        panel.setAuxDown(fcitx::Text(text));
         ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     });
 }
@@ -329,7 +333,6 @@ void VibetypeEngine::doStatus(const std::string &text) {
 // ── factory ─────────────────────────────────────────────────────────
 
 AddonInstance *VibetypeFactory::create(AddonManager *manager) {
-    FCITX_UNUSED(manager);
     return new VibetypeEngine(manager->instance());
 }
 

@@ -10,7 +10,9 @@
 #include <atomic>
 #include <fcitx/addonfactory.h>
 #include <fcitx/addoninstance.h>
+#include <fcitx/addonmanager.h>
 #include <fcitx/inputmethodengine.h>
+#include <fcitx-utils/eventdispatcher.h>
 #include <memory>
 #include <string>
 #include <thread>
@@ -23,15 +25,15 @@ class Instance;
 
 FCITX_CONFIGURATION(VibetypeConfig,
                      KeyListOption triggerKey{
-                         this, "TriggerKey", _("Trigger Key"), {Key("F12")},
+                         this, "TriggerKey", "Trigger Key", {Key("F12")},
                          KeyListConstrain()};
                      Option<int, IntConstrain> segmentSeconds{
-                         this, "SegmentSeconds", _("Segment Seconds"), 20,
+                         this, "SegmentSeconds", "Segment Seconds", 20,
                          IntConstrain(5, 60)};
                      Option<std::string> socketPath{
-                         this, "SocketPath", _("Backend Socket Path"), ""};
+                         this, "SocketPath", "Backend Socket Path", ""};
                      Option<std::string> audioDevice{
-                         this, "AudioDevice", _("ALSA Audio Device"),
+                         this, "AudioDevice", "ALSA Audio Device",
                          "default"};);
 
 // ── Engine ──────────────────────────────────────────────────────────
@@ -53,6 +55,7 @@ public:
 
 private:
     /* subprocess management */
+    void toggleRecording();
     void startHelper();
     void stopHelper();
     void sendLine(const std::string &line);
@@ -68,6 +71,7 @@ private:
     void setRecordingState(bool on);
 
     Instance *instance_;
+    EventDispatcher dispatcher_;
     VibetypeConfig config_;
 
     /* subprocess state */
@@ -80,6 +84,7 @@ private:
     /* recording / model state */
     bool recording_ = false;
     bool modelReady_ = false;
+    bool pendingStart_ = false;
 };
 
 // ── Factory ─────────────────────────────────────────────────────────

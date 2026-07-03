@@ -81,7 +81,20 @@ class Fcitx5Helper:
             self.audio_device = val
             self.log(f"  audio_device={val}")
 
+        if not self._recording:
+            self._reset_controller()
+
     # ── controller lifecycle ──────────────────────────────────────────
+
+    def _reset_controller(self) -> None:
+        if self.controller is None:
+            return
+        try:
+            self.controller.close()
+        except Exception:
+            pass
+        self.controller = None
+        self._model_ready = False
 
     def ensure_controller(self) -> VibetypeController:
         if self.controller is not None:
@@ -92,6 +105,8 @@ class Fcitx5Helper:
             commit_callback=self._on_commit,
             status_callback=self._on_status,
             audio_device=self.audio_device,
+            client_name="fcitx5-helper",
+            frontend_name="fcitx5",
         )
         return self.controller
 
@@ -148,7 +163,6 @@ class Fcitx5Helper:
         try:
             self.emit("status:Vibetype stopping...")
             ctl = self.ensure_controller()
-            # stop_recording calls finishSession which sends finalResult
             ctl.stop_recording()
             self.emit("recording-off")
             # _on_commit will emit commit:TEXT when finalResult arrives

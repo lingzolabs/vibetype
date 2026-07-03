@@ -13,9 +13,9 @@ Vibetype is a Linux voice input method focused on **local, offline ASR**. It run
 - **Good for mixed Chinese/English speech**: punctuation normalization prefers full-width punctuation when CJK text is present, and half-width punctuation otherwise.
 - **Frontend-agnostic backend**: JSON-RPC over Unix socket, built with `xtils::IpcServer`.
 - **Package split**:
-  - `vibetype-cli`: backend + CLI + shared Python code + systemd user service.
+  - `vibetype`: backend + CLI + shared Python code + systemd user service.
   - `vibetype-ibus`: IBus frontend add-on.
-  - `vibetype-fcitx5`: Fcitx5 add-on package name reserved; frontend implementation is pending.
+  - `vibetype-fcitx5`: Fcitx5 frontend add-on.
 
 ## Frontend status
 
@@ -23,7 +23,7 @@ Vibetype is a Linux voice input method focused on **local, offline ASR**. It run
 | --- | --- | --- |
 | CLI | Available | ALSA capture, selectable sound card, push-to-talk key mode, clipboard paste delivery. |
 | IBus | Available | Commits only final text; partial text is status/preedit style display. |
-| Fcitx5 | Planned | Package split is prepared; frontend implementation is pending. |
+| Fcitx5 | Available | C++ addon + Python helper frontend; commits only final text. |
 
 ## Performance and accuracy references
 
@@ -86,31 +86,41 @@ cmake -B build -DVIBETYPE_USE_SYSTEM_XTILS=ON
 CPack generates split packages:
 
 ```text
-vibetype-cli-*.tar.gz
+vibetype-*.tar.gz
 vibetype-ibus-addon-*.tar.gz
 vibetype-fcitx5-addon-*.tar.gz
 
-vibetype-cli_*.deb
+vibetype_*.deb
 vibetype-ibus_*.deb
 vibetype-fcitx5_*.deb
 ```
 
-Install CLI only:
+Install the core package only:
 
 ```bash
-sudo tar -C / -xzf build/vibetype-cli-*.tar.gz
+sudo tar -C / -xzf build/vibetype-*.tar.gz
 systemctl --user daemon-reload
 systemctl --user enable --now vibetype-backend.service
 ```
 
-Install CLI + IBus:
+Install core + IBus:
 
 ```bash
-sudo tar -C / -xzf build/vibetype-cli-*.tar.gz
+sudo tar -C / -xzf build/vibetype-*.tar.gz
 sudo tar -C / -xzf build/vibetype-ibus-addon-*.tar.gz
 systemctl --user daemon-reload
 systemctl --user enable --now vibetype-backend.service
 ibus restart
+```
+
+Install core + Fcitx5:
+
+```bash
+sudo tar -C / -xzf build/vibetype-*.tar.gz
+sudo tar -C / -xzf build/vibetype-fcitx5-addon-*.tar.gz
+systemctl --user daemon-reload
+systemctl --user enable --now vibetype-backend.service
+fcitx5 -rd
 ```
 
 ## CLI usage
