@@ -170,6 +170,8 @@ class CliApp:
         if not self.controller.final_event.wait(timeout=self.args.final_timeout):
             print("ERROR: timed out waiting for finalResult", file=sys.stderr)
             return 1
+        if not self.final_text:
+            return 0  # empty text (cancelled session) — nothing to output
         if self.args.print_final:
             print(f"FINAL: {self.final_text}", file=sys.stderr)
         input_text(self.final_text, self.args.input_method)
@@ -219,11 +221,15 @@ class CliApp:
                         recording = True
                     elif value == 0 and recording:
                         # Release finalizes this session and outputs only this result.
-                        self.controller.stop_recording()
+                        ok = self.controller.stop_recording()
                         recording = False
-                        code = self._finish_and_input()
-                        if code != 0:
-                            return code
+                        if ok:
+                            code = self._finish_and_input()
+                            if code != 0:
+                                return code
+                        else:
+                            # Session was cancelled (too short / error); nothing to output.
+                            pass
                         self._reset_controller()
         except KeyboardInterrupt:
             if recording:
@@ -268,7 +274,28 @@ def main() -> int:
 
     if args.segment_seconds <= 0:
         parser.error("--segment-seconds must be > 0")
-    return CliApp(args).run()
+
+    try:
+        return CliApp(args).run()
+    except ConnectionRefusedError:
+        print(
+            f"ERROR: Cannot connect to vibetype-backend at {args.socket}.\n"
+            f"       Start the backend first: vibetype-backend -s {args.socket}",
+            file=sys.stderr,
+        )
+        return 1
+    except FileNotFoundError:
+        print(
+            f"ERROR: Socket not found at {args.socket}.\n"
+            f"       Is vibetype-backend running?",
+            file=sys.stderr,
+        )
+        return 1
+    except KeyboardInterrupt:
+        return 0
+    except Exception as exc:
+        print(f"ERROR: unexpected error: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

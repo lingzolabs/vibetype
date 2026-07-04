@@ -314,6 +314,11 @@ def record_default_alsa_to_wav(path: Path, duration_seconds: int, audio_device: 
     write_pcm16_wav(path, bytes(pcm))
 
 
+class VibetypeError(RuntimeError):
+    """Custom exception for Vibetype frontend errors with a user-facing message."""
+    pass
+
+
 class VibetypeController:
     def __init__(
         self,
@@ -324,6 +329,7 @@ class VibetypeController:
         audio_device: str = "default",
         client_name: str = "ibus-python",
         frontend_name: str = "ibus-python",
+        min_record_ms: int = 1000,
     ):
         self.client = JsonRpcClient(socket_path)
         self.client.add_notify_handler(self._on_notify)
@@ -333,6 +339,7 @@ class VibetypeController:
         self.audio_device = audio_device or "default"
         self.client_name = client_name
         self.frontend_name = frontend_name
+        self.min_record_ms = min_record_ms  # minimum recording duration to avoid mis-triggers
         self.session_id: Optional[str] = None
         self.session_dir: Optional[Path] = None
         self.recorder: Optional[ArecordSegmentRecorder] = None
@@ -340,19 +347,44 @@ class VibetypeController:
         self.recording = False
         self.final_event = threading.Event()
         self.final_text = ""
+        self._session_errored = False
+        self._record_start_time: float = 0.0
 
-    def connect(self) -> None:
-        self.client.connect()
-        self.client.call("vibetype.hello", {"client": self.client_name, "protocol_version": 1})
+    def connect(self) -> bool:
+        """Connect to the backend and send hello.
+
+        Returns True on success, False on failure (error is reported via status_callback).
+        """
+        try:
+            self.client.connect()
+            result = self.client.call("vibetype.hello", {"client": self.client_name, "protocol_version": 1})
+            if not result:
+                self.status_callback("error: backend did not respond to hello")
+                return False
+            return True
+        except (FileNotFoundError, ConnectionRefusedError):
+            self.status_callback(
+                f"error: cannot connect to backend at {self.client.socket_path}. "
+                "Is vibetype-backend running?"
+            )
+            return False
+        except (OSError, TimeoutError) as e:
+            self.status_callback(f"error: connection failed: {e}")
+            return False
+        except RuntimeError as e:
+            self.status_callback(f"error: hello handshake failed: {e}")
+            return False
 
     def close(self) -> None:
         self.client.close()
 
-    def model_status(self) -> dict:
-        return self.client.call("vibetype.modelStatus", {})
+    def model_status(self) -> Optional[dict]:
+        return self._safe_call("vibetype.modelStatus", {})
 
     def ensure_model_ready(self) -> bool:
         status = self.model_status()
+        if status is None:
+            return False
         state = status.get("state")
         if state != "ready":
             self.status_callback(f"model {state}: {status.get('message', '')}")
@@ -360,7 +392,8 @@ class VibetypeController:
         return True
 
     def begin_session(self, frontend: Optional[str] = None) -> bool:
-        self.connect()
+        if not self.connect():
+            return False
         if not self.ensure_model_ready():
             return False
         frontend = frontend or self.frontend_name
@@ -369,10 +402,15 @@ class VibetypeController:
         self.segment_count = 0
         self.final_text = ""
         self.final_event.clear()
-        self.client.call(
+        self._session_errored = False
+        result = self._safe_call(
             "vibetype.startSession",
             {"session_id": self.session_id, "audio_format": AUDIO_FORMAT, "frontend": frontend},
         )
+        if result is None:
+            self.session_id = None
+            self.session_dir = None
+            return False
         return True
 
     def start_capture(self) -> bool:
@@ -382,6 +420,7 @@ class VibetypeController:
         if self.recording:
             return True
         assert self.session_dir is not None
+        self._record_start_time = time.monotonic()
         self.recorder = ArecordSegmentRecorder(self.segment_seconds, self._submit_segment, self.audio_device)
         self.recorder.start(self.session_dir, self.segment_count)
         self.recording = True
@@ -397,23 +436,43 @@ class VibetypeController:
         self.recording = False
         self.status_callback("paused")
 
-    def finish_session(self) -> None:
+    def finish_session(self) -> bool:
         if not self.session_id:
-            return
+            return False
         if self.recording:
             self.stop_capture()
+
+        # Very short recordings (< min_record_ms) are likely mis-triggers.
+        # Cancel the session instead of transcribing garbage.
+        elapsed_ms = int((time.monotonic() - self._record_start_time) * 1000)
+        if elapsed_ms < self.min_record_ms:
+            self.status_callback(f"cancelled: recording too short ({elapsed_ms}ms)")
+            self._safe_call("vibetype.cancelSession", {"session_id": self.session_id})
+            self.final_event.set()
+            return False
+
         self.status_callback("waiting final result")
-        self.client.call(
+        result = self._safe_call(
             "vibetype.finishSession",
             {"session_id": self.session_id, "segment_count": self.segment_count},
             timeout=5,
         )
+        if result is None:
+            self.status_callback("error: finishSession failed; session may be incomplete")
+            self.final_event.set()  # Unblock waiters so they don't hang
+            return False
+        # If segments failed mid-session, the backend won't send finalResult.
+        # Unblock waiters so they get an empty result instead of hanging.
+        if self._session_errored:
+            self.status_callback("error: session had errors, no final result will arrive")
+            self.final_event.set()
+        return True
 
     def start_recording(self) -> bool:
         return self.begin_session() and self.start_capture()
 
-    def stop_recording(self) -> None:
-        self.finish_session()
+    def stop_recording(self) -> bool:
+        return self.finish_session()
 
     def toggle_recording(self) -> None:
         if self.recording:
@@ -422,30 +481,36 @@ class VibetypeController:
             self.start_recording()
 
     def submit_wav_for_test(self, wav_path: Path, wait_model: bool = True) -> str:
-        self.connect()
+        if not self.connect():
+            raise VibetypeError("cannot connect to backend")
         if wait_model:
             while True:
                 status = self.model_status()
+                if status is None:
+                    raise VibetypeError("failed to query model status")
                 state = status.get("state")
                 self.status_callback(f"model {state}: {status.get('message', '')}")
                 if state == "ready":
                     break
                 if state == "error":
-                    raise RuntimeError(status)
+                    raise VibetypeError(f"model error: {status.get('message', '')}")
                 time.sleep(1)
         self.session_id = str(uuid.uuid4())
         self.session_dir = ensure_runtime_session_dir(self.session_id)
         self.segment_count = 0
         self.final_event.clear()
-        self.client.call(
+        self._session_errored = False
+        result = self._safe_call(
             "vibetype.startSession",
             {"session_id": self.session_id, "audio_format": AUDIO_FORMAT, "frontend": "fake-ibus"},
         )
+        if result is None:
+            raise VibetypeError("startSession failed")
         runtime_wav = copy_wav_to_runtime(wav_path, self.session_dir, 0)
         self._submit_segment(runtime_wav, 0, 0)
-        self.client.call("vibetype.finishSession", {"session_id": self.session_id, "segment_count": 1})
+        self._safe_call("vibetype.finishSession", {"session_id": self.session_id, "segment_count": self.segment_count})
         if not self.final_event.wait(timeout=120):
-            raise TimeoutError("timed out waiting for finalResult")
+            raise VibetypeError("timed out waiting for finalResult")
         return self.final_text
 
     def test_record_once(self, duration_seconds: int) -> str:
@@ -456,9 +521,25 @@ class VibetypeController:
         self.status_callback(f"recorded {wav}: {json.dumps(wav_stats(wav), ensure_ascii=False)}")
         return self.submit_wav_for_test(wav)
 
+    def _safe_call(self, method: str, params: Optional[dict] = None, timeout: float = 30.0) -> Optional[dict]:
+        """Call a JSON-RPC method, routing errors to status_callback.
+
+        Returns the result dict on success, or None on error.
+        Errors are reported via status_callback so both CLI and IBus display them.
+        """
+        try:
+            return self.client.call(method, params, timeout)
+        except TimeoutError:
+            self.status_callback(f"error: {method} timed out after {timeout}s")
+        except RuntimeError as e:
+            self.status_callback(f"error: {method} failed: {e}")
+        except (OSError, ConnectionError) as e:
+            self.status_callback(f"error: connection to backend lost during {method}: {e}")
+        return None
+
     def _submit_segment(self, path: Path, index: int, duration_ms: int) -> None:
         assert self.session_id is not None
-        self.client.call(
+        result = self._safe_call(
             "vibetype.transcribeSegment",
             {
                 "session_id": self.session_id,
@@ -468,7 +549,10 @@ class VibetypeController:
             },
             timeout=120,
         )
-        self.segment_count = max(self.segment_count, index + 1)
+        if result is not None:
+            self.segment_count = max(self.segment_count, index + 1)
+        else:
+            self._session_errored = True
 
     def _on_notify(self, method: str, params: dict) -> None:
         if method == "vibetype.partialResult":

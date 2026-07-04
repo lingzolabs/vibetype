@@ -251,13 +251,32 @@ def run_ibus(socket_path: str, segment_seconds: int, trigger_key: str, audio_dev
             self._indicator_frame = 0
             self._indicator_frames = ["🎤 ●○○", "🎤 ○●○", "🎤 ○○●"]
 
+        def _safe_thread_call(self, func, *args, **kwargs):
+            """Run a controller method in a thread, catching any exceptions."""
+            try:
+                return func(*args, **kwargs)
+            except Exception as exc:
+                GLib.idle_add(
+                    self._show_status,
+                    f"error: {func.__name__} failed: {exc}",
+                )
+                return False
+
         def do_process_key_event(self, keyval, keycode, state):
             # Hold-key mode: press → start, release → stop
             if int(keyval) == trigger_keyval:
                 if state & IBus.ModifierType.RELEASE_MASK:
-                    threading.Thread(target=self.controller.stop_recording, daemon=True).start()
+                    threading.Thread(
+                        target=self._safe_thread_call,
+                        args=(self.controller.stop_recording,),
+                        daemon=True,
+                    ).start()
                 else:
-                    threading.Thread(target=self.controller.start_recording, daemon=True).start()
+                    threading.Thread(
+                        target=self._safe_thread_call,
+                        args=(self.controller.start_recording,),
+                        daemon=True,
+                    ).start()
                 return True
             return False
 
@@ -310,6 +329,15 @@ def run_ibus(socket_path: str, segment_seconds: int, trigger_key: str, audio_dev
                 return False
             if text in {"paused", "final result ready"}:
                 self._stop_indicator(clear=True)
+                return False
+            if text.startswith(("error:", "cancelled:")):
+                # Error or cancellation: stop animation and clear the indicator
+                # after a brief pause so the user can see the message.
+                self._stop_indicator()
+                if text.startswith("cancelled:"):
+                    self._set_indicator("")
+                else:
+                    self._set_indicator(text)
                 return False
             self._stop_indicator()
             self._set_indicator(text)

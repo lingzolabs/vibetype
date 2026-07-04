@@ -324,6 +324,13 @@ void VibetypeEngine::setRecordingState(bool on) {
     recording_ = on;
     if (!on) {
         stopRecordingAnimation();
+        /* Clear panel immediately when recording stops.
+         * doCommit() also clears, but if the session errors/cancels
+         * without a commit, the panel would remain visible until the
+         * user switches input methods. */
+        dispatcher_.schedule([this]() {
+            clearPanel();
+        });
     }
     /* recording_ is set eagerly in startRecording(), so this is normally
      * a no-op on start. On stop it is set by the helper's recording-off
