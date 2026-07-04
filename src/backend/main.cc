@@ -274,9 +274,25 @@ bool IsCjkCodepoint(uint32_t cp) {
          (cp >= 0xAC00 && cp <= 0xD7AF);      // Hangul
 }
 
+// Only Chinese ideographs and Japanese kana use full-width punctuation.
+// Korean (Hangul) uses half-width punctuation like English.
+bool NeedsFullwidthPunct(uint32_t cp) {
+  return (cp >= 0x3400 && cp <= 0x4DBF) ||  // CJK Extension A
+         (cp >= 0x4E00 && cp <= 0x9FFF) ||  // CJK Unified
+         (cp >= 0xF900 && cp <= 0xFAFF) ||  // CJK Compatibility
+         (cp >= 0x3040 && cp <= 0x30FF);    // Hiragana/Katakana
+}
+
 bool ContainsCjk(const std::vector<Utf8Token>& tokens) {
   for (const auto& token : tokens) {
     if (IsCjkCodepoint(token.codepoint)) return true;
+  }
+  return false;
+}
+
+bool ContainsFullwidthPunct(const std::vector<Utf8Token>& tokens) {
+  for (const auto& token : tokens) {
+    if (NeedsFullwidthPunct(token.codepoint)) return true;
   }
   return false;
 }
@@ -321,12 +337,14 @@ std::string TrimTrailingSpaces(std::string text) {
 
 std::string NormalizeTranscriptText(const std::string& text) {
   // Keep this in the backend so IBus, CLI, and future Fcitx5 all get the same
-  // final text. If any CJK/Japanese/Korean character is present, normalize
-  // punctuation to full-width; otherwise normalize to half-width. Collapse
+  // final text. If Chinese ideographs or Japanese kana are present, normalize
+  // punctuation to full-width; otherwise normalize to half-width. Korean
+  // (Hangul-only) falls through to half-width like English. Collapse
   // punctuation runs even when ASR inserts spaces between them, e.g.
   // "？ . ." -> "？" and "。 。 . ." -> "。".
   const auto tokens = TokenizeUtf8(text);
-  const bool cjk_text = ContainsCjk(tokens);
+  // Korean (Hangul-only) uses half-width punctuation like English
+  const bool cjk_text = ContainsFullwidthPunct(tokens);
   std::string out;
   bool pending_space = false;
 
