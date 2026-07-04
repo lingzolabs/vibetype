@@ -5,23 +5,17 @@ Vibetype 提供 Fcitx5 输入法插件，与 IBus 前端共享同一套后端 JS
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────┐
-│ Fcitx5                                            │
-│  ┌──────────────────────────────────────────┐     │
-│  │ vibetype.so (C++ addon)                   │     │
-│  │  - key event handling                     │     │
-│  │  - fcitx5 config (trigger key, etc.)      │     │
-│  │  - subprocess manager                     │     │
-│  └──────────┬───────────────────────────────┘     │
-│             │ stdin/stdout (line protocol)         │
-│  ┌──────────▼───────────────────────────────┐     │
-│  │ vibetype-fcitx5-helper (Python process)   │     │
-│  │  - VivetypeController                     │     │
-│  │  - ALSA capture via arecord               │     │
-│  │  - JSON-RPC client                        │     │
-│  │  - session management                     │     │
-│  └──────────┬───────────────────────────────┘     │
-└─────────────┼─────────────────────────────────────┘
+┌──────────────────────────────────────────┐
+│ Fcitx5                                    │
+│  ┌──────────────────────────────────┐     │
+│  │ vibetype.so (C++ addon)           │     │
+│  │  - key event handling             │     │
+│  │  - fcitx5 config / panel UI       │     │
+│  │  - ALSA capture via arecord       │     │
+│  │  - JSON-RPC client (xtils)        │     │
+│  │  - WAV segmentation               │     │
+│  └──────────┬───────────────────────┘     │
+└─────────────┼─────────────────────────────┘
               │ JSON-RPC 2.0 over Unix socket
               ▼
 ┌─────────────────────────────┐
@@ -32,6 +26,8 @@ Vibetype 提供 Fcitx5 输入法插件，与 IBus 前端共享同一套后端 JS
 └─────────────────────────────┘
 ```
 
+不再依赖 Python helper 进程，`vibetype.so` 通过 xtils `IpcClient` 直接与后端通信。
+
 ## Files installed
 
 | File | Path |
@@ -39,7 +35,6 @@ Vibetype 提供 Fcitx5 输入法插件，与 IBus 前端共享同一套后端 JS
 | Fcitx5 addon library | `${FCITX5_LIBDIR}/fcitx5/vibetype.so` |
 | Addon registration | `${FCITX5_DATADIR}/addon/vibetype.conf` |
 | Input method registration | `${FCITX5_DATADIR}/inputmethod/vibetype-inputmethod.conf` |
-| Python helper | `/usr/bin/vibetype-fcitx5-helper` |
 
 ## Configuration
 
@@ -94,39 +89,7 @@ cmake -B build -DBUILD_FCITX5_ADDON=OFF
 
 ## Debug
 
-查看 helper 日志：
-
 ```bash
 journalctl --user -u vibetype-backend.service -f
-fcitx5-diagnose
-```
-
-C++ addon 日志输出到 fcitx5 日志：
-
-```bash
 fcitx5 -rd 2>&1 | grep Vibetype
-```
-
-直接运行 helper 测试：
-
-```bash
-echo "status" | /usr/bin/vibetype-fcitx5-helper
-echo -e "config.segment_seconds=10\nrecord\nstop\nquit" | /usr/bin/vibetype-fcitx5-helper
-```
-
-## Protocol (C++ addon ↔ Python helper)
-
-```
-C++ → Python (stdin):
-  config.key=val         设置配置项
-  record                 开始录音
-  stop                   停止录音
-  status                 查询模型状态
-  quit                   退出
-
-Python → C++ (stdout):
-  ready                  助手就绪，模型已加载
-  status:TEXT            辅助文本（partial 结果、状态提示）
-  commit:TEXT            最终文本，C++ addon 会提交到应用
-  error:MSG              错误信息
 ```

@@ -19,6 +19,8 @@ else()
     GIT_REPOSITORY ${XTILS_GIT_REPOSITORY}
     GIT_TAG ${XTILS_GIT_TAG}
     GIT_SHALLOW TRUE)
+  # Build xtils with PIC so it can be linked into vibetype.so (shared library)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
   FetchContent_MakeAvailable(xtils)
   set(VIBETYPE_XTILS_TARGET xtils)
 endif()
@@ -166,9 +168,9 @@ set(CPACK_DEBIAN_IBUS_PACKAGE_DEPENDS "curl, python3, alsa-utils, wl-clipboard, 
 set(CPACK_DEBIAN_IBUS_PACKAGE_CONFLICTS "vibetype, vibetype-fcitx5")
 set(CPACK_DEBIAN_FCITX5_PACKAGE_NAME "vibetype-fcitx5")
 set(CPACK_DEBIAN_FCITX5_PACKAGE_DESCRIPTION "Local offline voice input for Linux (Fcitx5 frontend). ASR model (SenseVoice GGUF ~200MB) auto-downloads on first run.")
-set(CPACK_DEBIAN_FCITX5_PACKAGE_DEPENDS "curl, python3, alsa-utils, wl-clipboard, xclip, xdotool, fcitx5")
+set(CPACK_DEBIAN_FCITX5_PACKAGE_DEPENDS "curl, alsa-utils, wl-clipboard, xclip, xdotool, fcitx5")
 set(CPACK_DEBIAN_FCITX5_PACKAGE_CONFLICTS "vibetype, vibetype-ibus")
-set(CPACK_DEBIAN_FCITX5_PACKAGE_SUGGESTS "python3-gi")
+
 
 set(CPACK_RPM_COMPONENT_INSTALL ON)
 set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
@@ -185,6 +187,6 @@ set(CPACK_RPM_IBUS_PACKAGE_REQUIRES "curl, python3, alsa-utils, wl-clipboard, xc
 set(CPACK_RPM_IBUS_PACKAGE_CONFLICTS "vibetype, vibetype-fcitx5")
 set(CPACK_RPM_FCITX5_PACKAGE_NAME "vibetype-fcitx5")
 set(CPACK_RPM_FCITX5_PACKAGE_DESCRIPTION "Local offline voice input for Linux (Fcitx5 frontend). ASR model (SenseVoice GGUF ~200MB) auto-downloads on first run.")
-set(CPACK_RPM_FCITX5_PACKAGE_REQUIRES "curl, python3, alsa-utils, wl-clipboard, xclip, xdotool, fcitx5")
+set(CPACK_RPM_FCITX5_PACKAGE_REQUIRES "curl, alsa-utils, wl-clipboard, xclip, xdotool, fcitx5")
 set(CPACK_RPM_FCITX5_PACKAGE_CONFLICTS "vibetype, vibetype-ibus")
 include(CPack)

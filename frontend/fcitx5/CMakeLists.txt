@@ -4,7 +4,7 @@ find_package(Fcitx5Core REQUIRED)
 include("${FCITX_INSTALL_CMAKECONFIG_DIR}/Fcitx5Utils/Fcitx5CompilerSettings.cmake")
 
 add_library(vibetype SHARED vibetype.cpp)
-target_link_libraries(vibetype PRIVATE Fcitx5::Core)
+target_link_libraries(vibetype PRIVATE Fcitx5::Core ${VIBETYPE_XTILS_TARGET})
 set_target_properties(vibetype PROPERTIES
   PREFIX ""
   CXX_STANDARD 20
@@ -27,10 +27,4 @@ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/vibetype.conf"
 # Input method registration
 install(FILES vibetype-inputmethod.conf
         DESTINATION "${VIBETYPE_FCITX5_INPUTMETHODDIR}"
-        COMPONENT fcitx5)
-
-# Python helper script
-install(PROGRAMS vibetype_fcitx5_helper.py
-        DESTINATION "${CMAKE_INSTALL_BINDIR}"
-        RENAME vibetype-fcitx5-helper
         COMPONENT fcitx5)

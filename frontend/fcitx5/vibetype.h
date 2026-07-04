@@ -9,6 +9,7 @@
 
 #include <atomic>
 #include <array>
+#include <chrono>
 #include <fcitx-config/option.h>
 #include <fcitx/addonfactory.h>
 #include <fcitx/addoninstance.h>
@@ -18,8 +19,15 @@
 #include <fcitx-utils/eventdispatcher.h>
 #include <fcitx-utils/key.h>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
+
+#include "xtils/net/ipc_channel.h"
+#include "xtils/utils/json.h"
+#include "xtils/utils/result.h"
+#include "xtils/utils/signal.h"
 
 namespace fcitx {
 
@@ -59,17 +67,30 @@ public:
                       const RawConfig &config) override;
 
 private:
-    /* subprocess management */
-    void startRecording();
-    void stopRecording();
-    void startHelper();
-    void stopHelper();
-    void sendLine(const std::string &line);
-    void readerLoop();
+    /* backend IPC */
+    void connectBackend();
+    void disconnectBackend();
+    void checkModel();
+    void onNotification(const std::string &method,
+                        const xtils::Json &params);
+    xtils::Result<xtils::Json>
+    safeCall(const std::string &method,
+             const xtils::Json &params = xtils::Json::object(),
+             uint32_t timeout_ms = 5000);
 
     /* recording */
-    static std::string
-    defaultSocketPath();
+    void startRecording();
+    void stopRecording();
+    void beginSession();
+    void startCapture();
+    void stopCapture();
+    void captureLoop();
+    std::string generateUuid();
+
+    /* WAV helpers */
+    bool writeWav(const std::string &path,
+                  const std::vector<uint8_t> &pcm);
+    std::string sessionDir();
 
     /* fcitx thread-safe commit/status */
     void doCommit(const std::string &text);
@@ -80,7 +101,7 @@ private:
     void showPanelMessage(const std::string &message);
     void clearPanel();
 
-    /* recording animation (like VocoType) */
+    /* recording animation */
     void startRecordingAnimation();
     void stopRecordingAnimation();
     void showAnimationFrame();
@@ -90,24 +111,35 @@ private:
     EventDispatcher dispatcher_;
     VibetypeConfig config_;
 
-    /* subprocess state */
-    pid_t childPid_ = -1;
-    int pipeStdin_ = -1;  /* write end → child stdin */
-    int pipeStdout_ = -1; /* read end  ← child stdout */
-    std::unique_ptr<std::thread> readerThread_;
-    std::atomic<bool> running_{false};
-
-    /* trigger key state (extracted from KeyListOption for direct sym comparison) */
+    /* trigger key */
     KeySym trigger_key_sym_ = FcitxKey_F12;
 
     /* recording animation state */
     std::unique_ptr<EventSourceTime> recording_animation_timer_;
     size_t recording_animation_frame_index_ = 0;
 
-    /* recording / model state */
-    bool recording_ = false;
-    bool modelReady_ = false;
+    /* ── IPC ── */
+    std::unique_ptr<xtils::IpcClient> ipc_;
+    xtils::ScopedSubscriptions subs_;
+    std::atomic<bool> backendConnected_{false};
+    std::atomic<bool> modelReady_{false};
     bool pendingStart_ = false;
+
+    /* ── Recording ── */
+    std::atomic<bool> recording_{false};
+    std::atomic<bool> capturing_{false};
+    pid_t arecordPid_ = -1;
+    int capturePipe_ = -1;
+    std::unique_ptr<std::thread> captureThread_;
+    std::string sessionId_;
+    std::string sessionDir_;
+    int segmentIndex_ = 0;
+    int segmentCount_ = 0;
+    std::chrono::steady_clock::time_point recordStartTime_;
+
+    static constexpr uint32_t kSegmentTimeoutMs = 120000;
+    static constexpr uint32_t kSessionTimeoutMs = 5000;
+    static constexpr uint64_t kMinRecordUs = 1000000;  // 1 second
 };
 
 // ── Factory ─────────────────────────────────────────────────────────
