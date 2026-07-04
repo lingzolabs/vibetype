@@ -8,10 +8,12 @@
 
 #include <fcitx-config/iniparser.h>
 #include <fcitx-utils/log.h>
+#include <fcitx-utils/event.h>
 #include <fcitx/inputcontext.h>
 #include <fcitx/inputpanel.h>
 #include <fcitx/instance.h>
 
+#include <array>
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
@@ -21,6 +23,16 @@
 #include <vector>
 
 namespace fcitx {
+
+// ── recording animation frames (language-neutral symbols) ─────────
+
+static constexpr std::array<const char *, 3> kRecordingFrames = {
+    "🎤 ●○○",
+    "🎤 ○●○",
+    "🎤 ○○●",
+};
+
+static constexpr uint64_t kAnimationIntervalUs = 250000; // 250ms
 
 // ── helpers ─────────────────────────────────────────────────────────
 
@@ -64,8 +76,12 @@ static constexpr char kConfigFile[] = "conf/vibetype.conf";
 
 void VibetypeEngine::reloadConfig() {
     readAsIni(config_, kConfigFile);
-    FCITX_INFO() << "Vibetype config loaded: triggerKey="
-                 << config_.triggerKey.value().size();
+    const auto &keys = config_.triggerKey.value();
+    if (!keys.empty()) {
+        trigger_key_sym_ = keys[0].sym();
+    }
+    FCITX_INFO() << "Vibetype config loaded: triggerKey sym="
+                 << static_cast<int>(trigger_key_sym_);
 }
 
 const Configuration *VibetypeEngine::getConfig() const {
@@ -89,17 +105,19 @@ void VibetypeEngine::keyEvent(const InputMethodEntry &entry,
                                KeyEvent &keyEvent) {
     FCITX_UNUSED(entry);
 
-    /* let release events pass through */
-    if (keyEvent.isRelease())
+    /* Compare key sym directly (supports modifier keys like Right Ctrl) */
+    if (keyEvent.key().sym() != trigger_key_sym_)
         return;
 
-    const auto &keys = config_.triggerKey.value();
-    if (keys.empty())
-        return;
+    keyEvent.filterAndAccept();
 
-    if (keyEvent.key().checkKeyList(keys)) {
-        keyEvent.filterAndAccept();
-        toggleRecording();
+    if (keyEvent.isRelease()) {
+        /* Release → stop recording if active */
+        stopRecording();
+    } else {
+        /* Press → start recording (ignore auto-repeat) */
+        if (!recording_)
+            startRecording();
     }
 }
 
@@ -250,7 +268,7 @@ void VibetypeEngine::readerLoop() {
                     doStatus("Vibetype model ready");
                     if (pendingStart_) {
                         pendingStart_ = false;
-                        toggleRecording();
+                        startRecording();
                     }
                 } else if (line == "recording" || line == "recording-on") {
                     setRecordingState(true);
@@ -264,7 +282,10 @@ void VibetypeEngine::readerLoop() {
 
 // ── recording ───────────────────────────────────────────────────────
 
-void VibetypeEngine::toggleRecording() {
+void VibetypeEngine::startRecording() {
+    if (recording_)
+        return;
+
     if (!modelReady_) {
         pendingStart_ = true;
         doStatus("Vibetype: model not ready, waiting...");
@@ -272,36 +293,112 @@ void VibetypeEngine::toggleRecording() {
         return;
     }
 
-    if (recording_) {
-        doStatus("Vibetype: stopping...");
-        sendLine("stop");
-    } else {
-        /* pass any configured overrides to the helper */
-        std::ostringstream cfg;
-        cfg << "config.socket_path="
-            << (config_.socketPath.value().empty()
-                    ? defaultSocketPath()
-                    : config_.socketPath.value())
-            << "\n"
-            << "config.segment_seconds="
-            << config_.segmentSeconds.value() << "\n"
-            << "config.audio_device="
-            << config_.audioDevice.value() << "\n";
-        sendLine(cfg.str());
-        sendLine("record");
-    }
+    recording_ = true;
+    startRecordingAnimation();
+
+    /* pass any configured overrides to the helper */
+    std::ostringstream cfg;
+    cfg << "config.socket_path="
+        << (config_.socketPath.value().empty()
+                ? defaultSocketPath()
+                : config_.socketPath.value())
+        << "\n"
+        << "config.segment_seconds="
+        << config_.segmentSeconds.value() << "\n"
+        << "config.audio_device="
+        << config_.audioDevice.value() << "\n";
+    sendLine(cfg.str());
+    sendLine("record");
+}
+
+void VibetypeEngine::stopRecording() {
+    if (!recording_)
+        return;
+    stopRecordingAnimation();
+    sendLine("stop");
 }
 
 void VibetypeEngine::setRecordingState(bool on) {
     if (recording_ == on)
         return;
     recording_ = on;
-    if (on) {
-        doStatus("Vibetype: recording...");
-    } else {
-        /* don't clear status here — let commit/status from helper
-         * handle the next state */
+    if (!on) {
+        stopRecordingAnimation();
     }
+    /* recording_ is set eagerly in startRecording(), so this is normally
+     * a no-op on start. On stop it is set by the helper's recording-off
+     * message or by doCommit(). */
+}
+
+// ── panel UI ───────────────────────────────────────────────────────
+
+void VibetypeEngine::showPanelMessage(const std::string &message) {
+    /* Must be called from event loop thread (dispatched).
+     * Uses AuxUp (top bar) like VocoType. */
+    auto *ic = instance_->mostRecentInputContext();
+    if (!ic)
+        return;
+    auto &panel = ic->inputPanel();
+    fcitx::Text display(message);
+    panel.setAuxUp(display);
+    panel.setAuxDown(fcitx::Text());
+    panel.setClientPreedit(fcitx::Text());
+    panel.setPreedit(fcitx::Text());
+    ic->updatePreedit();
+    ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+}
+
+void VibetypeEngine::clearPanel() {
+    auto *ic = instance_->mostRecentInputContext();
+    if (!ic)
+        return;
+    auto &panel = ic->inputPanel();
+    panel.setAuxUp(fcitx::Text());
+    panel.setAuxDown(fcitx::Text());
+    panel.setClientPreedit(fcitx::Text());
+    panel.setPreedit(fcitx::Text());
+    ic->updatePreedit();
+    ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+}
+
+// ── recording animation (event-loop timer, like VocoType) ──────────
+
+void VibetypeEngine::startRecordingAnimation() {
+    stopRecordingAnimation();
+    recording_animation_frame_index_ = 0;
+    showAnimationFrame();
+    scheduleNextAnimationFrame();
+}
+
+void VibetypeEngine::stopRecordingAnimation() {
+    recording_animation_timer_.reset();
+    recording_animation_frame_index_ = 0;
+}
+
+void VibetypeEngine::showAnimationFrame() {
+    /* Called from event-loop timer → already on main thread */
+    const auto &frame =
+        kRecordingFrames[recording_animation_frame_index_ %
+                          kRecordingFrames.size()];
+    showPanelMessage(frame);
+    recording_animation_frame_index_ =
+        (recording_animation_frame_index_ + 1) % kRecordingFrames.size();
+}
+
+void VibetypeEngine::scheduleNextAnimationFrame() {
+    recording_animation_timer_ = instance_->eventLoop().addTimeEvent(
+        CLOCK_MONOTONIC,
+        now(CLOCK_MONOTONIC) + kAnimationIntervalUs,
+        0,
+        [this](EventSourceTime *, uint64_t) {
+            recording_animation_timer_.reset();
+            if (!recording_)
+                return false;
+            showAnimationFrame();
+            scheduleNextAnimationFrame();
+            return false;
+        });
+    recording_animation_timer_->setOneShot();
 }
 
 // ── fcitx thread-safe UI updates ───────────────────────────────────
@@ -309,33 +406,20 @@ void VibetypeEngine::setRecordingState(bool on) {
 void VibetypeEngine::doCommit(const std::string &text) {
     if (text.empty())
         return;
+    stopRecordingAnimation();
     setRecordingState(false);
     dispatcher_.schedule([this, text]() {
+        clearPanel();
         auto *ic = instance_->mostRecentInputContext();
         if (!ic)
             return;
-        auto &panel = ic->inputPanel();
-        panel.setAuxDown(fcitx::Text());
-        panel.setPreedit(fcitx::Text());
-        panel.setClientPreedit(fcitx::Text());
-        ic->updatePreedit();
-        ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
         ic->commitString(text);
     });
 }
 
 void VibetypeEngine::doStatus(const std::string &text) {
     dispatcher_.schedule([this, text]() {
-        auto *ic = instance_->mostRecentInputContext();
-        if (!ic)
-            return;
-        auto &panel = ic->inputPanel();
-        fcitx::Text display(text);
-        panel.setAuxDown(display);
-        panel.setPreedit(display);
-        panel.setClientPreedit(display);
-        ic->updatePreedit();
-        ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+        showPanelMessage(text);
     });
 }
 

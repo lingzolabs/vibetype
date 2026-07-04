@@ -88,7 +88,7 @@ cmake -B build -DBUILD_FCITX5_ADDON=OFF
 
 1. 启动后端：`systemctl --user enable --now vibetype-backend.service`
 2. 重启 fcitx5：`fcitx5 -rd`
-3. 在输入法设置中添加 "Vibetype Voice Input 🎙"
+3. 在输入法设置中添加 "Vibetype Voice Input"
 4. 按触发键（默认 F12）开始/停止录音，录音期间会在当前输入上下文显示动态的 preedit / auxiliary 指示
 5. 停止录音后等待后端返回最终识别结果，自动提交到当前应用
 

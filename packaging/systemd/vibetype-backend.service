@@ -1,5 +1,5 @@
 [Unit]
-Description=Vibetype ASR backend
+Description=Vibetype ASR backend (ASR model auto-downloaded on first run)
 Documentation=https://github.com/lingzolabs/vibetype
 After=network-online.target
 Wants=network-online.target

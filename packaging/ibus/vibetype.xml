@@ -3,7 +3,7 @@
   <name>org.freedesktop.IBus.Vibetype</name>
   <description>Vibetype voice input method</description>
   <exec>/usr/bin/vibetype-ibus --ibus</exec>
-  <version>0.1.1</version>
+  <version>0.1.2</version>
   <author>Vibetype Maintainers</author>
   <license>MIT</license>
   <homepage>https://github.com/lingzolabs/vibetype</homepage>
@@ -13,13 +13,14 @@
       <name>vibetype</name>
       <longname>Vibetype Voice Input</longname>
       <description>Voice input through Vibetype backend</description>
-      <language>zh</language>
+      <!-- Multi-language support: Chinese, English, Cantonese, Japanese, Korean -->
+      <language>zh,en,yue,ja,ko</language>
       <license>MIT</license>
       <author>Vibetype Maintainers</author>
-      <icon>ibus-engine</icon>
+      <icon>microphone</icon>
       <layout>default</layout>
       <rank>1</rank>
-      <symbol>🎙</symbol>
+      <symbol>Mic</symbol>
       <setup>/usr/bin/vibetype-ibus --setup</setup>
     </engine>
   </engines>

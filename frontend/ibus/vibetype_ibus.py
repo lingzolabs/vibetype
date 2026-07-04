@@ -109,12 +109,6 @@ def parse_trigger_key(trigger_key: str, IBus) -> tuple[int, int]:
     return int(keyval), int(modifiers) & trigger_state_mask(IBus)
 
 
-def trigger_matches(keyval: int, state: int, trigger_keyval: int, trigger_modifiers: int, IBus) -> bool:
-    if state & IBus.ModifierType.RELEASE_MASK:
-        return False
-    return int(keyval) == trigger_keyval and (int(state) & trigger_state_mask(IBus)) == trigger_modifiers
-
-
 def run_setup() -> int:
     settings = load_ibus_settings()
     config_path = ibus_config_path()
@@ -255,12 +249,15 @@ def run_ibus(socket_path: str, segment_seconds: int, trigger_key: str, audio_dev
             )
             self._indicator_source_id = 0
             self._indicator_frame = 0
-            self._indicator_label = "Recording"
-            self._indicator_frames = ["●○○", "○●○", "○○●"]
+            self._indicator_frames = ["🎤 ●○○", "🎤 ○●○", "🎤 ○○●"]
 
         def do_process_key_event(self, keyval, keycode, state):
-            if trigger_matches(keyval, state, trigger_keyval, trigger_modifiers, IBus):
-                threading.Thread(target=self.controller.toggle_recording, daemon=True).start()
+            # Hold-key mode: press → start, release → stop
+            if int(keyval) == trigger_keyval:
+                if state & IBus.ModifierType.RELEASE_MASK:
+                    threading.Thread(target=self.controller.stop_recording, daemon=True).start()
+                else:
+                    threading.Thread(target=self.controller.start_recording, daemon=True).start()
                 return True
             return False
 
@@ -272,21 +269,17 @@ def run_ibus(socket_path: str, segment_seconds: int, trigger_key: str, audio_dev
             ibus_text = IBus.Text.new_from_string(text)
             self.update_auxiliary_text(ibus_text, True)
             self.show_auxiliary_text()
-            self.update_preedit_text(IBus.Text.new_from_string(text), len(text), True)
-            self.show_preedit_text()
 
         def _render_recording_indicator(self) -> None:
-            label = self._indicator_label.strip() or "Recording"
-            suffix = self._indicator_frames[self._indicator_frame % len(self._indicator_frames)]
-            self._set_indicator(f"🎙 {label} {suffix}")
+            frame = self._indicator_frames[self._indicator_frame % len(self._indicator_frames)]
+            self._set_indicator(frame)
             self._indicator_frame += 1
 
         def _tick_indicator(self):
             self._render_recording_indicator()
             return True
 
-        def _start_indicator(self, label: str = "Recording") -> None:
-            self._indicator_label = label.strip() or "Recording"
+        def _start_indicator(self) -> None:
             self._indicator_frame = 0
             if not self._indicator_source_id:
                 self._render_recording_indicator()
@@ -306,11 +299,10 @@ def run_ibus(socket_path: str, segment_seconds: int, trigger_key: str, audio_dev
 
         def _show_status(self, text: str):
             if text == "recording":
-                self._start_indicator("Recording")
+                self._start_indicator()
                 return False
             if text.startswith("partial: "):
-                partial = text[len("partial: ") :].strip()
-                self._start_indicator(partial or "Recording")
+                # Partial results: keep the recording animation running
                 return False
             if text in {"stopping", "waiting final result"}:
                 self._stop_indicator()
