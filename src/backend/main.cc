@@ -286,12 +286,16 @@ bool IsAsciiSpace(const Utf8Token& token) {
          token.text == "\r";
 }
 
+bool IsDigit(const std::string& s) {
+  return s.size() == 1 && s[0] >= '0' && s[0] <= '9';
+}
+
 std::string NormalizePunctuationToken(const std::string& token, bool cjk_text) {
   static const std::map<std::string, std::string> to_full = {
       {".", "。"}, {",", "，"}, {"!", "！"}, {"?", "？"},
       {";", "；"}, {":", "："}};
   static const std::map<std::string, std::string> to_half = {
-      {"。", "."}, {"，", ","}, {"！", "!"}, {"？", "?"},
+      {"。", "."}, {"，", ","}, {"！", "!"}, {"?", "?"},
       {"；", ";"}, {"：", ":"}, {"、", ","}};
   if (cjk_text) {
     auto it = to_full.find(token);
@@ -333,7 +337,22 @@ std::string NormalizeTranscriptText(const std::string& text) {
       continue;
     }
 
-    std::string token = NormalizePunctuationToken(tokens[i].text, cjk_text);
+    // Preserve dots used as number/version separators (e.g. 1.1.1)
+    bool is_number_dot = false;
+    if (tokens[i].text == ".") {
+      // Check previous non-space output ends with a digit
+      bool prev_is_digit = !out.empty() && IsDigit(std::string(1, out.back()));
+      // Check next non-space token is a digit
+      bool next_is_digit = false;
+      for (size_t k = i + 1; k < tokens.size(); ++k) {
+        if (IsAsciiSpace(tokens[k])) continue;
+        next_is_digit = IsDigit(tokens[k].text);
+        break;
+      }
+      is_number_dot = prev_is_digit && next_is_digit;
+    }
+
+    std::string token = is_number_dot ? "." : NormalizePunctuationToken(tokens[i].text, cjk_text);
     if (IsPunctuationToken(token)) {
       out = TrimTrailingSpaces(std::move(out));
       out += token;
