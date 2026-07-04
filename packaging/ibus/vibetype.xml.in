@@ -12,15 +12,14 @@
     <engine>
       <name>vibetype</name>
       <longname>Vibetype Voice Input</longname>
-      <description>Voice input through Vibetype backend</description>
-      <!-- Multi-language support: Chinese, English, Cantonese, Japanese, Korean -->
-      <language>zh,en,yue,ja,ko</language>
+      <description>Voice input through Vibetype backend (zh/en/yue/ja/ko)</description>
+      <language>zh</language>
       <license>MIT</license>
       <author>Vibetype Maintainers</author>
       <icon>microphone</icon>
       <layout>default</layout>
       <rank>1</rank>
-      <symbol>Mic</symbol>
+      <symbol>🎤</symbol>
       <setup>/usr/bin/vibetype-ibus --setup</setup>
     </engine>
   </engines>

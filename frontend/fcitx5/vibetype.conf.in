@@ -1,7 +1,9 @@
 [Addon]
 Name=Vibetype Voice Input
+Name[zh_CN]=Vibetype 语音输入
+Name[zh_TW]=Vibetype 語音輸入
 Category=InputMethod
-Version=@PROJECT_VERSION@
+Version=@CPACK_PACKAGE_VERSION@
 Library=vibetype
 Type=SharedLibrary
 OnDemand=True
