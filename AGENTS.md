@@ -5,7 +5,7 @@
 - Treat this repository as Vibetype, a Linux voice input method for local offline ASR.
 - Keep the backend frontend-agnostic; expose JSON-RPC over a Unix socket for CLI, IBus, and Fcitx5 frontends.
 - Prioritize Chinese and English recognition quality while preserving mixed Chinese, English, Cantonese, Japanese, and Korean support.
-- Follow `README.md`, `README_zh.md`, and `docs/vibetype-spec.md` as product, protocol, and packaging references.
+- Follow `README.md` (Chinese), `README.en.md` (English), and `docs/vibetype-spec.md` as product, protocol, and packaging references.
 
 ## Tech Stack
 

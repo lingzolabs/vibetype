@@ -98,7 +98,7 @@ function(vibetype_install_core component_name)
           COMPONENT ${component_name})
   install(FILES
             README.md
-            README_zh.md
+            README.en.md
             docs/cli.md
             docs/install.md
             docs/vibetype-spec.md

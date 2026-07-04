@@ -1,89 +1,91 @@
 # Vibetype
 
-Vibetype is a Linux voice input method focused on **local, offline ASR**. It runs a SenseVoice Small GGUF model on CPU, captures microphone audio from ALSA, and delivers final text through CLI or input-method frontends.
+[🇬🇧 English](README.en.md) | 🇨🇳 简体中文
 
-> Current priority: improve Chinese and English recognition quality first, while keeping multilingual mixed recognition available.
+Vibetype 是一个面向 Linux 的语音输入法项目，核心目标是：**本地、离线、快速、准确地把语音变成文字**。它使用 SenseVoice Small GGUF 模型在 CPU 上运行，通过 ALSA 采集麦克风音频，并通过 CLI / 输入法前端输出最终文本。
 
-## Highlights
+> 当前优先级：先重点打磨中文和英文识别效果，同时保留中英粤日韩混合识别能力。
 
-- **Local and offline**: audio stays on your machine after the model is downloaded.
-- **No GPU dependency**: CPU inference via `ggml` / `llama.cpp` components.
-- **Fast and accurate**: SenseVoiceSmall GGUF benchmark references report about **20× real-time** CPU inference and **8.17% Mandarin CER** for the Q8 runtime.
-- **Multilingual mixed recognition**: Chinese, English, Cantonese, Japanese, and Korean.
-- **Good for mixed Chinese/English speech**: punctuation normalization prefers full-width punctuation when CJK text is present, and half-width punctuation otherwise.
-- **Frontend-agnostic backend**: JSON-RPC over Unix socket, built with `xtils::IpcServer`.
-- **Package split**:
-  - `vibetype`: backend + CLI + shared Python code + systemd user service.
-  - `vibetype-ibus`: IBus frontend add-on.
-  - `vibetype-fcitx5`: Fcitx5 frontend add-on.
+## 特性亮点
 
-## Frontend status
+- **本地离线 ASR**：模型下载完成后，语音识别在本机完成，音频不需要上传到云端。
+- **无 GPU 依赖**：基于 `ggml` / `llama.cpp` 组件做 CPU 推理。
+- **速度快，准确率好**：SenseVoiceSmall GGUF benchmark 参考数据约 **20× real-time** CPU 推理，Q8 runtime 普通话 **8.17% CER**。
+- **多语言混合识别**：支持中文、英文、粤语、日语、韩语。
+- **适合中英混说**：后端会统一做标点清理；含中日韩文字时优先使用全角标点，纯英文等场景使用半角标点。
+- **后端与前端解耦**：后端通过 Unix Socket + JSON-RPC 对外服务，使用 `xtils::IpcServer` 实现。
+- **拆分包**：
+  - `vibetype`：后端 + CLI + 共享 Python 代码 + systemd user service。
+  - `vibetype-ibus`：IBus 前端插件包。
+  - `vibetype-fcitx5`：Fcitx5 前端插件包。
 
-| Frontend | Status | Notes |
+## 前端状态
+
+| 前端 | 状态 | 说明 |
 | --- | --- | --- |
-| CLI | Available | ALSA capture, selectable sound card, push-to-talk key mode, clipboard paste delivery. |
-| IBus | Available | Commits only final text; partial text is status/preedit style display. |
-| Fcitx5 | Available | C++ addon + Python helper frontend; commits only final text. |
+| CLI | 可用 | ALSA 录音、可选声卡、按键触发、剪贴板粘贴输出。 |
+| IBus | 可用 | 只提交最终识别文本，partial 仅用于状态/预编辑展示。 |
+| Fcitx5 | 可用 | C++ addon + Python helper 前端，只提交最终识别文本。 |
 
-## Performance and accuracy references
+## RTF 和准确率参考
 
-The default target model is **SenseVoiceSmall Q8 GGUF**. The following numbers are upstream / public benchmark references, not a promise for every microphone, accent, or desktop environment. Vibetype currently runs local CPU ASR and will continue to add frontend/backend polish such as VAD and domain adaptation.
+默认目标模型是 **SenseVoiceSmall Q8 GGUF**。下面的数据来自上游和公开 benchmark，用来说明模型能力和大致性能，不代表每个麦克风、口音、桌面环境下都完全一致。Vibetype 当前重点是本地 CPU ASR，后续还会继续加入 VAD、识别效果优化和领域微调。
 
-| Source / setup | Metric | Result |
+| 来源 / 设置 | 指标 | 结果 |
 | --- | --- | --- |
-| SenseVoice README | Latency | SenseVoice-Small reports about **70 ms for 10 s audio**, described as **15× faster than Whisper-Large**. |
-| SenseVoice llama.cpp / GGUF benchmark, Mandarin, CPU 8 threads, model-load excluded | Speed | SenseVoiceSmall around **20× real-time**. Equivalent **RTF ≈ 0.05**. |
-| Same benchmark, 184 Mandarin clips, micro-CER with `normalize_zh` | Accuracy | SenseVoiceSmall **7.81% CER** fp32 reference / **8.17% CER** Q8 runtime. |
-| Same benchmark, whisper.cpp comparison | Accuracy | whisper.cpp base **31.33% CER**, small **22.12% CER**, large-v3-turbo **23.15% CER** on the same Mandarin benchmark. |
+| SenseVoice README | 延迟 | SenseVoice-Small 官方描述约 **70 ms 处理 10 s 音频**，约 **15× 快于 Whisper-Large**。 |
+| SenseVoice llama.cpp / GGUF benchmark，普通话，CPU 8 线程，不含模型加载 | 速度 | SenseVoiceSmall 约 **20× real-time**，等价于 **RTF ≈ 0.05**。 |
+| 同一 benchmark，184 条普通话音频，`normalize_zh` micro-CER | 准确率 | SenseVoiceSmall **7.81% CER** fp32 reference / **8.17% CER** Q8 runtime。 |
+| 同一 benchmark，whisper.cpp 对比 | 准确率 | whisper.cpp base **31.33% CER**，small **22.12% CER**，large-v3-turbo **23.15% CER**。 |
 
-Notes:
+说明：
 
-- Lower **CER/WER** is better; lower **RTF** is faster. RTF 0.05 means roughly 20 seconds of audio processed per 1 second of compute.
-- The quoted Mandarin GGUF benchmark uses a VAD-based segmentation pipeline. Vibetype's current backend does not yet use VAD before ASR, so real-world long-form accuracy may differ until native VAD is added.
-- The first optimization target for Vibetype is **Chinese and English** recognition quality. Fine-tuning / domain adaptation is planned later for user-specific vocabulary, names, technical terms, and mixed Chinese-English dictation.
+- **CER/WER 越低越好**；**RTF 越低越快**。RTF 0.05 大约表示 1 秒计算可处理 20 秒音频。
+- 上面 GGUF 普通话 benchmark 使用了 VAD 分段流程。Vibetype 当前后端还没有在 ASR 前接入 VAD，所以长音频、静音较多场景下的实际效果可能会不同；后续会补 native VAD。
+- Vibetype 会优先优化 **中文和英文** 识别效果，后续计划做微调 / 领域适配，用来改善人名、术语、项目词、技术词汇、中英混说等场景。
 
-References:
+参考：
 
-- SenseVoice README: <https://github.com/FunAudioLLM/SenseVoice>
-- GGUF CPU benchmark: <https://github.com/FunAudioLLM/SenseVoice/blob/main/runtime/llama.cpp/BENCHMARKS.md>
+- SenseVoice README：<https://github.com/FunAudioLLM/SenseVoice>
+- GGUF CPU benchmark：<https://github.com/FunAudioLLM/SenseVoice/blob/main/runtime/llama.cpp/BENCHMARKS.md>
 
-## Model
+## 模型
 
-Default model path:
+默认模型路径：
 
 ```text
 ${XDG_CONFIG_HOME:-$HOME/.config}/vibetype/models/sensevoice-small-q8.gguf
 ```
 
-If the model is missing, the backend starts its IPC socket first, downloads the model in the background, and reports model status to frontends.
+如果模型不存在，后端会先启动 IPC socket，然后在后台下载模型，并通过 model status 通知前端当前状态。
 
-Model source:
+模型与准确率参考：
 
-- SenseVoice: <https://github.com/FunAudioLLM/SenseVoice>
-- SenseVoice Small GGUF: <https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF>
-- Benchmark references: <https://www.funasr.com/en/blog/funasr-vs-whisper-benchmark.html>
+- SenseVoice 项目：<https://github.com/FunAudioLLM/SenseVoice>
+- SenseVoice Small GGUF：<https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF>
+- 准确率对比参考：<https://www.funasr.com/en/blog/funasr-vs-whisper-benchmark.html>
 
-## Build
+## 构建
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
 cmake --build build --target package -j$(nproc)
 ```
 
-Dependencies are fetched by CMake where appropriate:
+CMake 会自动获取相关依赖：
 
-- `xtils` from <https://github.com/lingzolabs/xtils>
-- `llama.cpp` / `ggml` from a source release zip
+- `xtils`：来自 <https://github.com/lingzolabs/xtils>
+- `llama.cpp` / `ggml`：来自 source release zip
 
-To use a system-installed `xtils` instead:
+如果想使用系统已安装的 `xtils`：
 
 ```bash
 cmake -B build -DVIBETYPE_USE_SYSTEM_XTILS=ON
 ```
 
-## Packages
+## 包拆分
 
-CPack generates standalone package variants:
+CPack 会生成互斥的独立包：
 
 ```text
 vibetype-*.tar.gz
@@ -99,10 +101,9 @@ vibetype-ibus-*.rpm
 vibetype-fcitx5-*.rpm
 ```
 
-These three package variants are mutually exclusive. Each one is a full
-package and includes its own backend/runtime files.
+这三个包是互斥的。每个包都是整包，都会自带 backend 和运行时文件。
 
-Install one tar package variant:
+安装一个 tar 包变体：
 
 ```bash
 sudo tar -C / -xzf build/vibetype-*.tar.gz
@@ -110,7 +111,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now vibetype-backend.service
 ```
 
-Or install the IBus / Fcitx5 variants:
+安装 IBus / Fcitx5 变体：
 
 ```bash
 sudo tar -C / -xzf build/vibetype-ibus-*.tar.gz
@@ -120,39 +121,39 @@ sudo tar -C / -xzf build/vibetype-fcitx5-*.tar.gz
 fcitx5 -rd
 ```
 
-On RPM-based systems, install one matching `.rpm` variant instead.
+在 RPM 系发行版上，安装对应的 `.rpm` 变体即可。
 
-## CLI usage
+## CLI 用法
 
-List ALSA devices:
+查看可用 ALSA 声卡：
 
 ```bash
 vibetype-cli --list-audio-devices
 ```
 
-Record from the default microphone until Ctrl+C:
+使用默认麦克风录音，按 Ctrl+C 结束：
 
 ```bash
 vibetype-cli --audio-device default --input-method auto
 ```
 
-Record from a selected sound card:
+选择指定声卡：
 
 ```bash
 vibetype-cli --audio-device plughw:1,0 --input-method auto
 ```
 
-Push-to-talk style: each press/release pair is one independent recognition result:
+按键触发模式：每次按下到松开，是一次独立识别，只输出当次结果，不会累加。
 
 ```bash
 vibetype-cli --hold-key F12 --audio-device default --input-method auto
 ```
 
-`auto` copies recognized text to the clipboard and tries to paste with Ctrl+V. This avoids character-by-character key simulation for multilingual text.
+`auto` 会先把识别结果写入剪贴板，再尝试自动发送 Ctrl+V 粘贴。这样避免用按键模拟逐字输入多语言文本，更适合中文、日文、韩文等场景。
 
-## Backend protocol
+## 后端协议
 
-The backend exposes JSON-RPC methods over a Unix socket:
+后端通过 Unix Socket 暴露 JSON-RPC 方法：
 
 - `vibetype.hello`
 - `vibetype.startSession`
@@ -161,20 +162,20 @@ The backend exposes JSON-RPC methods over a Unix socket:
 - `vibetype.cancelSession`
 - `vibetype.modelStatus`
 
-Notifications:
+通知：
 
 - `vibetype.partialResult`
 - `vibetype.finalResult`
 - `vibetype.error`
 - `vibetype.modelStatusChanged`
 
-## Documentation
+## 文档
 
-- CLI: [`docs/cli.md`](docs/cli.md)
-- IBus: [`docs/ibus-frontend.md`](docs/ibus-frontend.md)
-- Install: [`docs/install.md`](docs/install.md)
-- Spec: [`docs/vibetype-spec.md`](docs/vibetype-spec.md)
-- Fcitx5 status: [`docs/fcitx5-frontend.md`](docs/fcitx5-frontend.md)
+- CLI：[`docs/cli.md`](docs/cli.md)
+- IBus：[`docs/ibus-frontend.md`](docs/ibus-frontend.md)
+- 安装：[`docs/install.md`](docs/install.md)
+- 规格：[`docs/vibetype-spec.md`](docs/vibetype-spec.md)
+- Fcitx5 状态：[`docs/fcitx5-frontend.md`](docs/fcitx5-frontend.md)
 
 ## License
 
