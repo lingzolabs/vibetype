@@ -357,7 +357,7 @@ class VibetypeController:
         """
         try:
             self.client.connect()
-            result = self.client.call("vibetype.hello", {"client": self.client_name, "protocol_version": 1})
+            result = self.client.call("vibetype.hello", {"client": self.client_name, "protocol_version": 1}, timeout=5)
             if not result:
                 self.status_callback("error: backend did not respond to hello")
                 return False

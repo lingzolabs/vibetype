@@ -236,49 +236,109 @@ def run_ibus(socket_path: str, segment_seconds: int, trigger_key: str, audio_dev
     class VibetypeEngine(IBus.Engine):
         __gtype_name__ = "VibetypeEngine"
 
-        def __init__(self, engine_name: str, object_path: str, connection):
-            super().__init__(engine_name=engine_name, object_path=object_path, connection=connection)
-            self.controller = VibetypeController(
-                socket_path,
-                segment_seconds,
-                commit_callback=lambda text: GLib.idle_add(self._commit_text, text),
-                status_callback=lambda text: GLib.idle_add(self._show_status, text),
-                audio_device=audio_device,
-                client_name="ibus-python",
-                frontend_name="ibus",
-            )
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self._init_state()
+
+        def _init_state(self):
+            """Initialize instance state; safe to call multiple times."""
+            if hasattr(self, "_initialized"):
+                return
+            self._initialized = True
+            self._controller = None
+            self._recording = False
+            self._busy = False
             self._indicator_source_id = 0
             self._indicator_frame = 0
             self._indicator_frames = ["🎤 ●○○", "🎤 ○●○", "🎤 ○○●"]
 
-        def _safe_thread_call(self, func, *args, **kwargs):
-            """Run a controller method in a thread, catching any exceptions."""
-            try:
-                return func(*args, **kwargs)
-            except Exception as exc:
-                GLib.idle_add(
-                    self._show_status,
-                    f"error: {func.__name__} failed: {exc}",
+        def _ensure_state(self):
+            """Guard for GObject construction that may skip __init__."""
+            if not hasattr(self, "_initialized"):
+                self._init_state()
+
+        def _get_controller(self):
+            """Lazily create the controller on first use."""
+            self._ensure_state()
+            if self._controller is None:
+                self._controller = VibetypeController(
+                    socket_path,
+                    segment_seconds,
+                    commit_callback=lambda text: GLib.idle_add(self._commit_text, text),
+                    status_callback=lambda text: GLib.idle_add(self._show_status, text),
+                    audio_device=audio_device,
+                    client_name="ibus-python",
+                    frontend_name="ibus",
                 )
-                return False
+            return self._controller
+
+        def _do_start(self):
+            """Run in a worker thread: connect and start recording."""
+            try:
+                controller = self._get_controller()
+                controller.start_recording()
+                GLib.idle_add(self._set_recording_state, True)
+            except Exception as exc:
+                GLib.idle_add(self._show_status, f"error: {exc}")
+            finally:
+                self._busy = False
+
+        def _do_stop(self):
+            """Run in a worker thread: stop recording and wait for result."""
+            try:
+                controller = self._get_controller()
+                controller.stop_recording()
+            except Exception as exc:
+                GLib.idle_add(self._show_status, f"error: {exc}")
+            finally:
+                self._busy = False
+                GLib.idle_add(self._set_recording_state, False)
+
+        def _set_recording_state(self, on):
+            self._recording = on
+            return False
 
         def do_process_key_event(self, keyval, keycode, state):
-            # Hold-key mode: press → start, release → stop
-            if int(keyval) == trigger_keyval:
-                if state & IBus.ModifierType.RELEASE_MASK:
-                    threading.Thread(
-                        target=self._safe_thread_call,
-                        args=(self.controller.stop_recording,),
-                        daemon=True,
-                    ).start()
-                else:
-                    threading.Thread(
-                        target=self._safe_thread_call,
-                        args=(self.controller.start_recording,),
-                        daemon=True,
-                    ).start()
+            self._ensure_state()
+            # Fast path: only handle the configured trigger key
+            if int(keyval) != trigger_keyval:
+                return False
+            # Check modifiers match (mask out release flag)
+            active_mods = int(state) & trigger_state_mask(IBus)
+            if active_mods != trigger_modifiers:
+                return False
+
+            is_release = bool(state & IBus.ModifierType.RELEASE_MASK)
+
+            # Ignore key-repeat while already recording/busy
+            if not is_release and self._recording:
                 return True
-            return False
+            if is_release and not self._recording:
+                return True
+            if self._busy:
+                return True
+
+            self._busy = True
+            if is_release:
+                threading.Thread(target=self._do_stop, daemon=True).start()
+            else:
+                threading.Thread(target=self._do_start, daemon=True).start()
+            return True
+
+        def do_disable(self):
+            """Called when the engine is disabled; clean up."""
+            self._ensure_state()
+            if self._recording and self._controller:
+                self._recording = False
+                threading.Thread(target=self._safe_stop, daemon=True).start()
+            self._stop_indicator(clear=True)
+
+        def _safe_stop(self):
+            try:
+                if self._controller:
+                    self._controller.stop_recording()
+            except Exception:
+                pass
 
         def _set_indicator(self, text: str) -> None:
             if not text:

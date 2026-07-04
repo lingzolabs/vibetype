@@ -77,8 +77,156 @@ def open_input_devices(device: str | None):
         except OSError as exc:
             errors.append(f"{path}: {exc}")
     if not files:
-        raise RuntimeError("no readable input event devices. Try --input-device /dev/input/eventX or run with input-group permissions. " + "; ".join(errors[:3]))
+        raise RuntimeError("no readable input event devices. " + "; ".join(errors[:3]))
     return files
+
+
+# ── Key listener backends ─────────────────────────────────────────────
+
+
+class KeyListenerEvdev:
+    """Listen for key events via /dev/input/event* (requires input group)."""
+
+    def __init__(self, key_code: int, device: str | None):
+        self.key_code = key_code
+        self.files = open_input_devices(device)
+        self.event_struct = struct.Struct("llHHi")
+
+    def run(self, on_press, on_release):
+        try:
+            while True:
+                readable, _, _ = select.select(self.files, [], [])
+                for f in readable:
+                    data = os.read(f.fileno(), self.event_struct.size)
+                    if len(data) != self.event_struct.size:
+                        continue
+                    _sec, _usec, ev_type, code, value = self.event_struct.unpack(data)
+                    if ev_type != EV_KEY or code != self.key_code:
+                        continue
+                    if value == 1:
+                        on_press()
+                    elif value == 0:
+                        on_release()
+        finally:
+            for f in self.files:
+                f.close()
+
+
+class KeyListenerTerminal:
+    """Listen for key press/release in the terminal via raw stdin.
+
+    Uses termios raw mode.  Supports single-char keys and common escape
+    sequences (F1–F12, arrows, etc.).  Since terminals cannot distinguish
+    physical press vs release, we treat each keypress as a press+hold and
+    use a timeout to detect release (key-up).
+    """
+
+    # Mapping from escape sequences to friendly names
+    _SEQ_MAP: dict[str, str] = {
+        "\x1b[24~": "F12", "\x1bOP": "F1", "\x1bOQ": "F2",
+        "\x1bOR": "F3", "\x1bOS": "F4", "\x1b[15~": "F5",
+        "\x1b[17~": "F6", "\x1b[18~": "F7", "\x1b[19~": "F8",
+        "\x1b[20~": "F9", "\x1b[21~": "F10", "\x1b[23~": "F11",
+        " ": "SPACE",
+    }
+
+    # Reverse: name -> expected trigger
+    _NAME_MAP: dict[int, str] = {
+        88: "F12", 59: "F1", 60: "F2", 61: "F3", 62: "F4",
+        63: "F5", 64: "F6", 65: "F7", 66: "F8", 67: "F9",
+        68: "F10", 87: "F11",
+        57: "SPACE", 29: "LEFTCTRL", 97: "RIGHTCTRL",
+    }
+
+    def __init__(self, key_code: int, release_timeout: float = 0.5):
+        self.key_code = key_code
+        self.release_timeout = release_timeout
+        key_name = self._NAME_MAP.get(key_code)
+        if not key_name:
+            raise RuntimeError(
+                f"terminal backend does not support key code {key_code}; "
+                f"supported: {', '.join(f'{k}({v})' for k, v in sorted(self._NAME_MAP.items()))}"
+            )
+        self.key_name = key_name
+
+    def _match(self, buf: str) -> bool:
+        """Check if buffer matches our trigger key."""
+        seq_name = self._SEQ_MAP.get(buf)
+        return seq_name == self.key_name
+
+    def run(self, on_press, on_release):
+        import termios
+        import tty
+
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            holding = False
+            while True:
+                # Wait for input or timeout (release detection)
+                readable, _, _ = select.select([fd], [], [], self.release_timeout if holding else None)
+                if not readable:
+                    # Timeout: key released
+                    if holding:
+                        holding = False
+                        on_release()
+                    continue
+
+                ch = os.read(fd, 32).decode("utf-8", errors="ignore")
+                if not ch:
+                    break
+
+                # Ctrl+C to quit
+                if ch == "\x03":
+                    if holding:
+                        holding = False
+                        on_release()
+                    raise KeyboardInterrupt
+
+                if self._match(ch):
+                    if not holding:
+                        holding = True
+                        on_press()
+                    # else: key repeat while holding, ignore
+                else:
+                    # Different key pressed while holding -> release + ignore
+                    if holding:
+                        holding = False
+                        on_release()
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+
+def create_key_listener(key_code: int, input_device: str | None, backend: str | None):
+    """Create the best available key listener.
+
+    Priority: explicit --key-backend > terminal > evdev.
+    """
+    if backend == "evdev":
+        return KeyListenerEvdev(key_code, input_device)
+    if backend == "terminal":
+        return KeyListenerTerminal(key_code)
+
+    # Auto-detect: try terminal first (no special permissions needed)
+    if sys.stdin.isatty():
+        try:
+            return KeyListenerTerminal(key_code)
+        except RuntimeError:
+            pass
+
+    # Fall back to evdev
+    try:
+        return KeyListenerEvdev(key_code, input_device)
+    except RuntimeError:
+        pass
+
+    raise RuntimeError(
+        "no key listener backend available.\n"
+        "  • Terminal: run from an interactive terminal (default, no special perms)\n"
+        "  • Evdev: add your user to the 'input' group, or use --input-device\n"
+        "  • Use --key-backend to force one"
+    )
 
 
 def copy_to_clipboard(text: str) -> bool:
@@ -97,46 +245,22 @@ def copy_to_clipboard(text: str) -> bool:
     return False
 
 
-def paste_from_clipboard() -> bool:
-    # Clipboard carries the multilingual text; these helpers only press Ctrl+V.
-    paste_commands = []
-    if command_exists("xdotool"):
-        paste_commands.append(["xdotool", "key", "--clearmodifiers", "ctrl+v"])
-    if command_exists("ydotool"):
-        paste_commands.append(["ydotool", "key", "29:1", "47:1", "47:0", "29:0"])
-
-    for cmd in paste_commands:
-        try:
-            subprocess.check_call(cmd)
-            return True
-        except (FileNotFoundError, subprocess.CalledProcessError) as exc:
-            print(f"WARN: paste command failed: {' '.join(cmd)}: {exc}", file=sys.stderr)
-    return False
-
-
 def input_text(text: str, method: str) -> None:
     if not text:
         return
 
-    if method in ("auto", "paste", "clipboard"):
+    if method in ("auto", "clipboard"):
         if copy_to_clipboard(text):
-            if method in ("auto", "paste"):
-                time.sleep(0.05)
-                if paste_from_clipboard():
-                    print("Pasted recognized text from clipboard.", file=sys.stderr)
-                    return
-                print("Copied recognized text to clipboard, but auto-paste is unavailable. Paste it with Ctrl+V.", file=sys.stderr)
-                return
-            print("Copied recognized text to clipboard. Paste it with Ctrl+V.", file=sys.stderr)
+            sys.stderr.write(f"\r\x1b[K✓ {text}\r\n")
+            sys.stderr.flush()
             return
-        if method in ("paste", "clipboard"):
-            print("WARN: no working clipboard tool found; falling back to stdout", file=sys.stderr)
+        if method == "clipboard":
+            sys.stderr.write("\r\x1b[KWARN: no clipboard tool; falling back to stdout\r\n")
+            sys.stderr.flush()
 
-    if method == "stdout" or method in ("auto", "paste", "clipboard"):
-        print(text)
-        return
-
-    raise ValueError(f"unknown input method: {method}")
+    # stdout fallback
+    sys.stdout.write(f"\r\x1b[K{text}\r\n")
+    sys.stdout.flush()
 
 
 class CliApp:
@@ -152,6 +276,7 @@ class CliApp:
             audio_device=self.args.audio_device,
             commit_callback=self._on_commit,
             status_callback=self._on_status,
+            min_record_ms=0,  # terminal mode: no min duration, user explicitly triggers
         )
 
     def _reset_controller(self) -> None:
@@ -161,19 +286,34 @@ class CliApp:
 
     def _on_status(self, text: str) -> None:
         if not self.args.quiet:
-            print(f"STATUS: {text}", file=sys.stderr, flush=True)
+            # Permanent messages (errors, cancellations, results) get their own line.
+            # Transient status (recording, stopping, etc.) overwrites in-place.
+            if text.startswith(("cancelled:", "error:", "final result ready")):
+                sys.stderr.write(f"\r\x1b[K{text}\r\n")
+            else:
+                sys.stderr.write(f"\r\x1b[K{text}")
+            sys.stderr.flush()
+
+    def _clear_status_line(self) -> None:
+        """Move past the status line before printing final output."""
+        sys.stderr.write("\r\x1b[K")
+        sys.stderr.flush()
 
     def _on_commit(self, text: str) -> None:
         self.final_text = text
 
     def _finish_and_input(self) -> int:
         if not self.controller.final_event.wait(timeout=self.args.final_timeout):
-            print("ERROR: timed out waiting for finalResult", file=sys.stderr)
+            self._clear_status_line()
+            sys.stderr.write("ERROR: timed out waiting for finalResult\r\n")
+            sys.stderr.flush()
             return 1
+        self._clear_status_line()
         if not self.final_text:
             return 0  # empty text (cancelled session) — nothing to output
         if self.args.print_final:
-            print(f"FINAL: {self.final_text}", file=sys.stderr)
+            sys.stderr.write(f"FINAL: {self.final_text}\r\n")
+            sys.stderr.flush()
         input_text(self.final_text, self.args.input_method)
         return 0
 
@@ -181,7 +321,8 @@ class CliApp:
         if not self.controller.start_recording():
             return 2
 
-        print(f"Recording from ALSA input {self.args.audio_device!r}. Press Ctrl+C to stop.", file=sys.stderr)
+        sys.stderr.write(f"Recording from ALSA input {self.args.audio_device!r}. Press Ctrl+C to stop.\r\n")
+        sys.stderr.flush()
         try:
             if self.args.duration > 0:
                 time.sleep(self.args.duration)
@@ -196,49 +337,40 @@ class CliApp:
 
     def run_hold_key(self) -> int:
         key_code = parse_key_code(self.args.hold_key)
-        event_struct = struct.Struct("llHHi")
-        files = open_input_devices(self.args.input_device)
+        backend = self.args.key_backend if self.args.key_backend != "auto" else None
+        listener = create_key_listener(key_code, self.args.input_device, backend)
         recording = False
-        print(
-            f"Hold {self.args.hold_key} (evdev code {key_code}) to record one utterance; release to finish and output. Press Ctrl+C to exit.",
-            file=sys.stderr,
-            flush=True,
+        backend_name = type(listener).__name__.replace("KeyListener", "").lower()
+        sys.stderr.write(
+            f"Hold {self.args.hold_key} (code {key_code}) to record; release to finish. "
+            f"Backend: {backend_name}. Press Ctrl+C to exit.\r\n"
         )
+        sys.stderr.flush()
+
+        def on_press():
+            nonlocal recording
+            if not recording:
+                if not self.controller.start_recording():
+                    return
+                recording = True
+
+        def on_release():
+            nonlocal recording
+            if recording:
+                ok = self.controller.stop_recording()
+                recording = False
+                if ok:
+                    self._finish_and_input()
+                self._reset_controller()
+
         try:
-            while True:
-                readable, _, _ = select.select(files, [], [])
-                for f in readable:
-                    data = os.read(f.fileno(), event_struct.size)
-                    if len(data) != event_struct.size:
-                        continue
-                    _sec, _usec, ev_type, code, value = event_struct.unpack(data)
-                    if ev_type != EV_KEY or code != key_code:
-                        continue
-                    if value == 1 and not recording:
-                        # Each press starts a new independent recognition session.
-                        if not self.controller.start_recording():
-                            return 2
-                        recording = True
-                    elif value == 0 and recording:
-                        # Release finalizes this session and outputs only this result.
-                        ok = self.controller.stop_recording()
-                        recording = False
-                        if ok:
-                            code = self._finish_and_input()
-                            if code != 0:
-                                return code
-                        else:
-                            # Session was cancelled (too short / error); nothing to output.
-                            pass
-                        self._reset_controller()
+            listener.run(on_press, on_release)
         except KeyboardInterrupt:
             if recording:
                 self.controller.stop_recording()
                 return self._finish_and_input()
             return 0
-        finally:
-            for f in files:
-                f.close()
+        return 0
 
     def run(self) -> int:
         try:
@@ -257,13 +389,15 @@ def main() -> int:
     parser.add_argument("--list-audio-devices", action="store_true", help="List ALSA capture devices and exit")
     parser.add_argument("--duration", type=float, default=0, help="Record this many seconds; 0 means until Ctrl+C")
     parser.add_argument("--hold-key", help="Evdev key name/code: press to start one recognition, release to finish and output (e.g. F12, KEY_F12, 88)")
-    parser.add_argument("--input-device", help="Specific /dev/input/eventX device for --hold-key; default scans readable event devices")
+    parser.add_argument("--input-device", help="Specific /dev/input/eventX device for evdev backend")
+    parser.add_argument("--key-backend", choices=["auto", "terminal", "evdev"], default="auto",
+                        help="Key listener backend: terminal (raw stdin, no special perms), evdev (needs input group), auto (try terminal first)")
     parser.add_argument("--final-timeout", type=float, default=180)
     parser.add_argument(
         "--input-method",
-        choices=["auto", "paste", "clipboard", "stdout"],
+        choices=["auto", "clipboard", "stdout"],
         default="auto",
-        help="How to deliver final text: auto/paste copies to clipboard and tries Ctrl+V; clipboard only copies; stdout is for debugging",
+        help="How to deliver final text: auto/clipboard copies to clipboard; stdout prints to stdout",
     )
     parser.add_argument("--print-final", action="store_true", help="Also print final text to stderr")
     parser.add_argument("--quiet", action="store_true")
