@@ -179,4 +179,4 @@ vibetype-cli --hold-key F12 --audio-device default --input-method auto
 
 ## License
 
-TBD.
+MIT License. See [LICENSE](LICENSE) for details.
