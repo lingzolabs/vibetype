@@ -52,6 +52,21 @@ target_link_libraries(vibetype-backend PRIVATE ${VIBETYPE_XTILS_TARGET} ggml)
 
 include(GNUInstallDirs)
 
+# ── Version from git tag (strip leading 'v' from e.g. v0.1.2) ──
+execute_process(
+  COMMAND git describe --tags --abbrev=0
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  OUTPUT_VARIABLE GIT_TAG
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_QUIET)
+if(GIT_TAG MATCHES "^v[0-9]+\\.[0-9]+\\.[0-9]+$")
+  string(SUBSTRING "${GIT_TAG}" 1 -1 CPACK_PACKAGE_VERSION)
+  message(STATUS "Version from git tag: ${CPACK_PACKAGE_VERSION}")
+else()
+  set(CPACK_PACKAGE_VERSION "0.0.0-dev")
+  message(WARNING "No valid git tag found; using ${CPACK_PACKAGE_VERSION}")
+endif()
+
 # ── Optional Fcitx5 addon ──────────────────────────────────────────
 option(BUILD_FCITX5_ADDON "Build the Fcitx5 frontend addon" ON)
 if(BUILD_FCITX5_ADDON)
@@ -99,7 +114,9 @@ install(PROGRAMS frontend/ibus/vibetype_ibus.py
         DESTINATION ${CMAKE_INSTALL_BINDIR}
         RENAME vibetype-ibus
         COMPONENT ibus)
-install(FILES packaging/ibus/vibetype.xml
+configure_file(packaging/ibus/vibetype.xml.in
+               ${CMAKE_CURRENT_BINARY_DIR}/packaging/ibus/vibetype.xml)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/packaging/ibus/vibetype.xml
         DESTINATION ${CMAKE_INSTALL_DATADIR}/ibus/component
         COMPONENT ibus)
 install(FILES docs/ibus-frontend.md
@@ -113,7 +130,6 @@ install(FILES docs/fcitx5-frontend.md
 set(CPACK_PACKAGE_NAME "vibetype")
 set(CPACK_PACKAGE_VENDOR "Vibetype")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Linux voice input method")
-set(CPACK_PACKAGE_VERSION "0.1.2")
 set(CPACK_PACKAGE_CONTACT "Vibetype Maintainers")
 set(CPACK_GENERATOR "TGZ;DEB;RPM")
 set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${CMAKE_SYSTEM_PROCESSOR}")
