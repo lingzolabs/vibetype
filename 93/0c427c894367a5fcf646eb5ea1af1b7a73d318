@@ -1,0 +1,24 @@
+frontend/fcitx5/vibetype.conf.in
+  s_774351d47e431f::t_fc84c223a8637f 3-4
+  s_774351d47e431f::t_a93955a5603264 6
+packaging/ibus/vibetype.xml.in
+  s_774351d47e431f::t_2a3e6ebfc15a09 15-16,22
+frontend/fcitx5/vibetype-inputmethod.conf
+  s_774351d47e431f::t_214d2e4f6eab30 3-5,7-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "930c427c894367a5fcf646eb5ea1af1b7a73d318",
+  "prompts": {},
+  "sessions": {
+    "s_774351d47e431f": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f2c0b-0bbb-7d84-9696-74b500bb50b5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Albert Lv <lvwenyi@onerobot.com>"
+    }
+  }
+}
