@@ -1,0 +1,25 @@
+frontend/cli/vibetype_cli.py
+  s_774351d47e431f::t_3e01fa92d6b9d1 401-402
+  s_774351d47e431f::t_e30e2d630f096b 400
+  s_774351d47e431f::t_58dd752cc61846 115-122,124-141,143-145,147-148,150-155,158-162,164-196,198,204,208-212,214,226,228
+  s_774351d47e431f::t_6d1651ac15da8b 80,84-114,123,142,146,149,156-157,163,197,199-203,205-207,213,215-225,227,229
+  s_774351d47e431f::t_7b8ac64e5c3abf 347-348
+  s_774351d47e431f::t_83bf3c3efd95a7 350,352-353,357-373,375,381
+  s_774351d47e431f::t_481b41f247a521 230-231
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "65383a1bf1fe21ea1c3f9f313684a2a4dd1c8d9e",
+  "prompts": {},
+  "sessions": {
+    "s_774351d47e431f": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f2c0b-0bbb-7d84-9696-74b500bb50b5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Albert Lv <lvwenyi@onerobot.com>"
+    }
+  }
+}
