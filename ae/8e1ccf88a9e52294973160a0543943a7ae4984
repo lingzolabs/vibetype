@@ -1,0 +1,20 @@
+frontend/cli/vibetype_cli.py
+  s_774351d47e431f::t_b2e4641bf0315c 279
+  s_774351d47e431f::t_346a1ba35f0ae0 141
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "ae8e1ccf88a9e52294973160a0543943a7ae4984",
+  "prompts": {},
+  "sessions": {
+    "s_774351d47e431f": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f2c0b-0bbb-7d84-9696-74b500bb50b5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Albert Lv <lvwenyi@onerobot.com>"
+    }
+  }
+}
