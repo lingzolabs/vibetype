@@ -5,6 +5,10 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+# GNUInstallDirs must be included early so CMAKE_INSTALL_DATADIR etc. are
+# available for all install() calls and compile definitions below.
+include(GNUInstallDirs)
+
 include(FetchContent)
 
 option(VIBETYPE_USE_SYSTEM_XTILS "Use installed xtils package instead of fetching it" OFF)
@@ -46,13 +50,43 @@ endif()
 
 add_executable(vibetype-backend
   src/backend/main.cc
-  src/backend/sensevoice_engine.cc)
+  src/backend/sensevoice_engine.cc
+  src/backend/text_processor.cc)
 target_include_directories(vibetype-backend PRIVATE
   src/backend)
-target_compile_definitions(vibetype-backend PRIVATE LOG_TAG_STRING="vibetype-backend")
+target_compile_definitions(vibetype-backend PRIVATE
+  LOG_TAG_STRING="vibetype-backend"
+  VIBETYPE_INSTALL_DATA_DIR="${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATADIR}/vibetype"
+  VIBETYPE_SOURCE_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
 target_link_libraries(vibetype-backend PRIVATE ${VIBETYPE_XTILS_TARGET} ggml)
 
-include(GNUInstallDirs)
+# ── text_processor unit tests (no xtils / ggml dependency) ───────────
+find_package(Threads REQUIRED)
+enable_testing()
+add_executable(test_text_processor
+  tests/test_text_processor.cc
+  src/backend/text_processor.cc)
+target_include_directories(test_text_processor PRIVATE
+  src/backend)
+# Link xtils so config parsing uses xtils::Json in test binary too.
+target_compile_definitions(test_text_processor PRIVATE
+  LOG_TAG_STRING="test_text_processor"
+  DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+target_link_libraries(test_text_processor PRIVATE ${VIBETYPE_XTILS_TARGET} Threads::Threads)
+add_test(NAME text_processor COMMAND test_text_processor)
+
+# Install data files (GNUInstallDirs already included at top)
+install(FILES data/text-processing.json data/computer_terms.json
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/vibetype
+        COMPONENT cli)
+install(FILES data/text-processing.json data/computer_terms.json
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/vibetype
+        COMPONENT ibus)
+install(FILES data/text-processing.json data/computer_terms.json
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/vibetype
+        COMPONENT fcitx5)
+
+# (GNUInstallDirs is included early; no second include needed)
 
 # ── Version from git tag (strip leading 'v' from e.g. v0.1.2) ──
 execute_process(

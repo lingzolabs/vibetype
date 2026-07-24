@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "sensevoice_engine.h"
+#include "text_processor.h"
 
 #include "ggml.h"
 
@@ -222,6 +223,7 @@ xtils::Json JsonArray(const std::vector<int>& values) {
 }
 
 struct Session {
+  uint64_t generation = 0;
   bool finished = false;
   int expected_count = -1;
   std::map<int, std::string> segment_text;
@@ -233,188 +235,16 @@ std::string FakeTranscribeSegment(int segment_index, const std::string& fake_tex
   return "fake transcript segment " + std::to_string(segment_index);
 }
 
-struct Utf8Token {
-  std::string text;
-  uint32_t codepoint = 0;
-};
-
-std::vector<Utf8Token> TokenizeUtf8(const std::string& text) {
-  std::vector<Utf8Token> tokens;
-  for (size_t i = 0; i < text.size();) {
-    const unsigned char c = static_cast<unsigned char>(text[i]);
-    size_t len = 1;
-    uint32_t cp = c;
-    if ((c & 0xE0) == 0xC0 && i + 1 < text.size()) {
-      len = 2;
-      cp = ((c & 0x1F) << 6) |
-           (static_cast<unsigned char>(text[i + 1]) & 0x3F);
-    } else if ((c & 0xF0) == 0xE0 && i + 2 < text.size()) {
-      len = 3;
-      cp = ((c & 0x0F) << 12) |
-           ((static_cast<unsigned char>(text[i + 1]) & 0x3F) << 6) |
-           (static_cast<unsigned char>(text[i + 2]) & 0x3F);
-    } else if ((c & 0xF8) == 0xF0 && i + 3 < text.size()) {
-      len = 4;
-      cp = ((c & 0x07) << 18) |
-           ((static_cast<unsigned char>(text[i + 1]) & 0x3F) << 12) |
-           ((static_cast<unsigned char>(text[i + 2]) & 0x3F) << 6) |
-           (static_cast<unsigned char>(text[i + 3]) & 0x3F);
-    }
-    tokens.push_back({text.substr(i, len), cp});
-    i += len;
-  }
-  return tokens;
-}
-
-bool IsCjkCodepoint(uint32_t cp) {
-  return (cp >= 0x3400 && cp <= 0x4DBF) ||    // CJK Extension A
-         (cp >= 0x4E00 && cp <= 0x9FFF) ||    // CJK Unified
-         (cp >= 0xF900 && cp <= 0xFAFF) ||    // CJK Compatibility
-         (cp >= 0x3040 && cp <= 0x30FF) ||    // Hiragana/Katakana
-         (cp >= 0xAC00 && cp <= 0xD7AF);      // Hangul
-}
-
-// Only Chinese ideographs and Japanese kana use full-width punctuation.
-// Korean (Hangul) uses half-width punctuation like English.
-bool NeedsFullwidthPunct(uint32_t cp) {
-  return (cp >= 0x3400 && cp <= 0x4DBF) ||  // CJK Extension A
-         (cp >= 0x4E00 && cp <= 0x9FFF) ||  // CJK Unified
-         (cp >= 0xF900 && cp <= 0xFAFF) ||  // CJK Compatibility
-         (cp >= 0x3040 && cp <= 0x30FF);    // Hiragana/Katakana
-}
-
-bool ContainsCjk(const std::vector<Utf8Token>& tokens) {
-  for (const auto& token : tokens) {
-    if (IsCjkCodepoint(token.codepoint)) return true;
-  }
-  return false;
-}
-
-bool ContainsFullwidthPunct(const std::vector<Utf8Token>& tokens) {
-  for (const auto& token : tokens) {
-    if (NeedsFullwidthPunct(token.codepoint)) return true;
-  }
-  return false;
-}
-
-bool IsAsciiSpace(const Utf8Token& token) {
-  return token.text == " " || token.text == "\t" || token.text == "\n" ||
-         token.text == "\r";
-}
-
-bool IsDigit(const std::string& s) {
-  return s.size() == 1 && s[0] >= '0' && s[0] <= '9';
-}
-
-std::string NormalizePunctuationToken(const std::string& token, bool cjk_text) {
-  static const std::map<std::string, std::string> to_full = {
-      {".", "。"}, {",", "，"}, {"!", "！"}, {"?", "？"},
-      {";", "；"}, {":", "："}};
-  static const std::map<std::string, std::string> to_half = {
-      {"。", "."}, {"，", ","}, {"！", "!"}, {"?", "?"},
-      {"；", ";"}, {"：", ":"}, {"、", ","}};
-  if (cjk_text) {
-    auto it = to_full.find(token);
-    return it == to_full.end() ? token : it->second;
-  }
-  auto it = to_half.find(token);
-  return it == to_half.end() ? token : it->second;
-}
-
-bool IsPunctuationToken(const std::string& token) {
-  static const std::vector<std::string> punctuation = {
-      ".", ",", "!", "?", ";", ":", "。", "，", "！", "？", "；", "：", "、"};
-  return std::find(punctuation.begin(), punctuation.end(), token) != punctuation.end();
-}
-
-std::string TrimTrailingSpaces(std::string text) {
-  while (!text.empty() && (text.back() == ' ' || text.back() == '\t' ||
-                           text.back() == '\n' || text.back() == '\r')) {
-    text.pop_back();
-  }
-  return text;
-}
-
-std::string NormalizeTranscriptText(const std::string& text) {
-  // Keep this in the backend so IBus, CLI, and future Fcitx5 all get the same
-  // final text. If Chinese ideographs or Japanese kana are present, normalize
-  // punctuation to full-width; otherwise normalize to half-width. Korean
-  // (Hangul-only) falls through to half-width like English. Collapse
-  // punctuation runs even when ASR inserts spaces between them, e.g.
-  // "？ . ." -> "？" and "。 。 . ." -> "。".
-  const auto tokens = TokenizeUtf8(text);
-  // Korean (Hangul-only) uses half-width punctuation like English
-  const bool cjk_text = ContainsFullwidthPunct(tokens);
-  std::string out;
-  bool pending_space = false;
-
-  for (size_t i = 0; i < tokens.size();) {
-    if (IsAsciiSpace(tokens[i])) {
-      pending_space = true;
-      ++i;
-      continue;
-    }
-
-    // Preserve dots used as number/version separators (e.g. 1.1.1)
-    bool is_number_dot = false;
-    if (tokens[i].text == ".") {
-      // Check previous non-space output ends with a digit
-      bool prev_is_digit = !out.empty() && IsDigit(std::string(1, out.back()));
-      // Check next non-space token is a digit
-      bool next_is_digit = false;
-      for (size_t k = i + 1; k < tokens.size(); ++k) {
-        if (IsAsciiSpace(tokens[k])) continue;
-        next_is_digit = IsDigit(tokens[k].text);
-        break;
-      }
-      is_number_dot = prev_is_digit && next_is_digit;
-    }
-
-    std::string token = is_number_dot ? "." : NormalizePunctuationToken(tokens[i].text, cjk_text);
-    if (IsPunctuationToken(token)) {
-      out = TrimTrailingSpaces(std::move(out));
-      out += token;
-      pending_space = false;
-
-      bool saw_space_after_punct = false;
-      size_t j = i + 1;
-      while (j < tokens.size()) {
-        if (IsAsciiSpace(tokens[j])) {
-          saw_space_after_punct = true;
-          ++j;
-          continue;
-        }
-        std::string next = NormalizePunctuationToken(tokens[j].text, cjk_text);
-        if (!IsPunctuationToken(next)) break;
-        ++j;
-      }
-      pending_space = !cjk_text && saw_space_after_punct;
-      i = j;
-      continue;
-    }
-
-    if (pending_space && !out.empty()) {
-      // CJK text commonly has no spaces around CJK punctuation, but keep word
-      // separation for embedded Latin text and non-CJK text.
-      if (!cjk_text || (tokens[i].codepoint < 0x80 &&
-                        static_cast<unsigned char>(out.back()) < 0x80)) {
-        out += ' ';
-      }
-    }
-    out += token;
-    pending_space = false;
-    ++i;
-  }
-  return TrimTrailingSpaces(std::move(out));
-}
-
-std::string JoinSegments(const Session& session) {
+std::string JoinSegments(const Session& session,
+                         const vibetype::TextProcessor& tp,
+                         bool is_final) {
   std::string out;
   for (const auto& [_, text] : session.segment_text) {
     if (!out.empty() && !text.empty()) out += " ";
     out += text;
   }
-  return NormalizeTranscriptText(out);
+  if (is_final) return tp.ProcessFinal(out);
+  return tp.ProcessPartial(out);
 }
 
 std::vector<int> CompletedSegments(const Session& session) {
@@ -541,9 +371,11 @@ class BackendService {
  public:
   BackendService(xtils::IpcServer& server, vibetype::SenseVoiceEngine& engine,
                  ModelManager* model_manager, bool fake_asr,
-                 std::string fake_text, int threads)
+                 std::string fake_text, int threads,
+                 vibetype::TextProcessor text_processor)
       : server_(server), engine_(engine), model_manager_(model_manager),
-        fake_asr_(fake_asr), fake_text_(std::move(fake_text)), threads_(threads) {}
+        fake_asr_(fake_asr), fake_text_(std::move(fake_text)), threads_(threads),
+        text_processor_(std::move(text_processor)) {}
 
   void RegisterMethods() {
     server_.Register("vibetype.hello", [this](const xtils::Json& params) { return Hello(params); });
@@ -592,7 +424,9 @@ class BackendService {
 
     {
       std::lock_guard<std::mutex> lock(mu_);
-      sessions_[*session_id] = Session{};
+      Session session;
+      session.generation = ++next_session_generation_;
+      sessions_[*session_id] = std::move(session);
     }
     LogI("start session %s", session_id->c_str());
     xtils::Json result = xtils::Json::object();
@@ -608,11 +442,14 @@ class BackendService {
       return InvalidParams("missing segment params");
     }
 
+    uint64_t session_generation = 0;
     {
       std::lock_guard<std::mutex> lock(mu_);
-      if (sessions_.find(*session_id) == sessions_.end()) {
+      const auto it = sessions_.find(*session_id);
+      if (it == sessions_.end()) {
         return xtils::Err(-32004, "session not found");
       }
+      session_generation = it->second.generation;
     }
 
     std::string code;
@@ -642,16 +479,40 @@ class BackendService {
       }
     }
 
-    bool should_try_final = false;
+    // Build partial snapshot under lock, then process and notify outside.
+    Session partial_snapshot;
+    std::vector<int> partial_segments;
     {
       std::lock_guard<std::mutex> lock(mu_);
       auto it = sessions_.find(*session_id);
-      if (it == sessions_.end()) return xtils::Err(-32004, "session not found");
+      if (it == sessions_.end() ||
+          it->second.generation != session_generation) {
+        return xtils::Err(-32004, "session was cancelled or replaced");
+      }
       it->second.segment_text[static_cast<int>(*segment_index)] = transcript;
-      SendPartialLocked(*session_id, it->second);
-      should_try_final = true;
+      partial_snapshot = it->second;
+      partial_segments = CompletedSegments(it->second);
     }
-    if (should_try_final) TrySendFinal(*session_id);
+    // Process partial text outside the lock, then re-check the session before
+    // notifying. Holding the lock for Notify linearizes it with cancellation.
+    const std::string partial_text =
+        JoinSegments(partial_snapshot, text_processor_, false);
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      const auto it = sessions_.find(*session_id);
+      if (it == sessions_.end() ||
+          it->second.generation != session_generation ||
+          it->second.final_sent) {
+        return xtils::Err(-32004, "session was cancelled, replaced, or finalized");
+      }
+      xtils::Json params = xtils::Json::object();
+      params["session_id"] = *session_id;
+      params["completed_segments"] = JsonArray(partial_segments);
+      params["text"] = partial_text;
+      params["is_final"] = false;
+      server_.Notify("vibetype.partialResult", params);
+    }
+    TrySendFinal(*session_id);
 
     xtils::Json result = xtils::Json::object();
     result["accepted"] = true;
@@ -692,17 +553,11 @@ class BackendService {
     return result;
   }
 
-  void SendPartialLocked(const std::string& session_id, const Session& session) {
-    xtils::Json params = xtils::Json::object();
-    params["session_id"] = session_id;
-    params["completed_segments"] = JsonArray(CompletedSegments(session));
-    params["text"] = JoinSegments(session);
-    params["is_final"] = false;
-    server_.Notify("vibetype.partialResult", params);
-  }
-
   void TrySendFinal(const std::string& session_id) {
-    xtils::Json params = xtils::Json::object();
+    // Step 1: Under lock, check readiness and collect a raw snapshot.
+    Session raw_snapshot;
+    int expected_count = -1;
+    uint64_t session_generation = 0;
     {
       std::lock_guard<std::mutex> lock(mu_);
       auto it = sessions_.find(session_id);
@@ -713,13 +568,35 @@ class BackendService {
       for (int i = 0; i < session.expected_count; ++i) {
         if (session.segment_text.find(i) == session.segment_text.end()) return;
       }
+      // Mark final_sent NOW (under lock) to prevent duplicate sends.
       session.final_sent = true;
-      params["session_id"] = session_id;
-      params["segment_count"] = session.expected_count;
-      params["text"] = JoinSegments(session);
-      params["is_final"] = true;
+      raw_snapshot = session;
+      expected_count = session.expected_count;
+      session_generation = session.generation;
     }
-    server_.Notify("vibetype.finalResult", params);
+
+    // Step 2: Process text OUTSIDE the lock (may be slow for long transcripts).
+    const std::string final_text = JoinSegments(raw_snapshot, text_processor_, true);
+
+    // Step 3: Second-check: session must still exist (not cancelled) and
+    // final_sent must still be true (the flag we just set).
+    {
+      std::lock_guard<std::mutex> lock(mu_);
+      auto it = sessions_.find(session_id);
+      if (it == sessions_.end() ||
+          it->second.generation != session_generation ||
+          !it->second.final_sent) {
+        return;
+      }
+      xtils::Json params = xtils::Json::object();
+      params["session_id"] = session_id;
+      params["segment_count"] = expected_count;
+      params["text"] = final_text;
+      params["is_final"] = true;
+      // Keep the lock while notifying so cancelSession cannot complete before
+      // an already-approved final notification is emitted.
+      server_.Notify("vibetype.finalResult", params);
+    }
   }
 
   xtils::IpcServer& server_;
@@ -728,8 +605,10 @@ class BackendService {
   bool fake_asr_ = false;
   std::string fake_text_;
   int threads_ = 8;
+  vibetype::TextProcessor text_processor_;
   std::mutex mu_;
   std::mutex engine_mu_;
+  uint64_t next_session_generation_ = 0;
   std::map<std::string, Session> sessions_;
 };
 
@@ -772,7 +651,52 @@ int main(int argc, char** argv) {
     model_manager = std::make_unique<ModelManager>(engine, server, model_path, model_url);
   }
 
-  BackendService service(server, engine, model_manager.get(), fake_asr, fake_text, threads);
+  // FindDataDir: locate the text-processing data directory.
+  // Priority:
+  //   1. VIBETYPE_DATA_DIR environment variable
+  //   2. Executable-relative ../share/vibetype (works from install tree)
+  //   3. Compile-time VIBETYPE_INSTALL_DATA_DIR (after `make install`)
+  //   4. Compile-time VIBETYPE_SOURCE_DATA_DIR (build tree / dev)
+  auto FindDataDir = [&argv]() -> std::string {
+    // 1. Env override
+    const char* env_dd = std::getenv("VIBETYPE_DATA_DIR");
+    if (env_dd && *env_dd) return env_dd;
+
+    // 2. Executable-relative ../share/vibetype
+    {
+      std::error_code ec;
+      auto exe = std::filesystem::canonical(
+          std::filesystem::path(argv[0]), ec);
+      if (!ec) {
+        auto rel = exe.parent_path().parent_path() / "share" / "vibetype";
+        if (std::filesystem::exists(rel / "text-processing.json", ec))
+          return rel.string();
+      }
+    }
+
+#ifdef VIBETYPE_INSTALL_DATA_DIR
+    if (std::filesystem::exists(
+            std::filesystem::path(VIBETYPE_INSTALL_DATA_DIR) / "text-processing.json"))
+      return VIBETYPE_INSTALL_DATA_DIR;
+#endif
+
+#ifdef VIBETYPE_SOURCE_DATA_DIR
+    if (std::filesystem::exists(
+            std::filesystem::path(VIBETYPE_SOURCE_DATA_DIR) / "text-processing.json"))
+      return VIBETYPE_SOURCE_DATA_DIR;
+#endif
+
+    return "";  // no data dir found; Load() will use hardcoded defaults
+  };
+
+  const std::string tp_data_dir = FindDataDir();
+  auto tp_cfg = vibetype::TextProcessorConfig::Load(tp_data_dir);
+  vibetype::TextProcessor text_processor(std::move(tp_cfg));
+  LogI("text processor loaded with %zu alias entries (data dir: %s)",
+       text_processor.Config().alias.entries.size(), tp_data_dir.c_str());
+
+  BackendService service(server, engine, model_manager.get(), fake_asr, fake_text, threads,
+                         std::move(text_processor));
   service.RegisterMethods();
 
   xtils::system::SignalHandler::Initialize([&server] { server.Stop(); });

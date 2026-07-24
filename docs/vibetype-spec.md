@@ -359,17 +359,79 @@ Notification params:
 - 接收 segment 后加入 session。
 - 每段独立 ASR。
 - 按 `segment_index` 排序拼接文本。
-- 可以在任意 segment 完成后发送 `partialResult`。
+- 可以在任意 segment 完成后发送 `partialResult`（经过 `ProcessPartial` 处理）。
 - 收到 `finishSession` 后，等待 `segment_count` 个 segment 全部完成。
-- 全部完成后生成完整文本，清理重复标点符号，并发送 `finalResult`。
+- 全部完成后经 `ProcessFinal` 处理并发送 `finalResult`。
 
-### 10.4 Future Polish Hook
+### 10.4 Deterministic Text Processing
 
-后续需要对完整内容做润色。MVP 先不实现润色，但后端 final pipeline 应预留位置：
+后端内置 `TextProcessor`（`src/backend/text_processor.h/.cc`）负责所有文本后处理，保证 CLI/IBus/Fcitx5 行为一致，**不依赖 LLM**。
+
+#### ProcessPartial（partial result 专用）
+
+- 严格沿用既有 `NormalizeTranscriptText` 的标点及空格语义（CJK 全角、纯英文/韩文半角），不引入新的空格调整。
+- 仅新增受保护片段屏蔽：URL、邮箱、文件路径、CLI 选项、版本号/IP、反引号代码和含点技术标识符内部**逐字符不变**。
+
+#### ProcessFinal（final result 专用）
 
 ```text
-segments -> per-segment ASR -> ordered concatenation -> punctuation cleanup -> future polish -> finalResult
+原文
+  → 受保护片段检测（URL/email/path/CLI option/version/backtick/tech-id）
+  → 标点规范化（不修改受保护片段）
+  → 口语填充词清理（嗯/呃/um/uh，句首或标点边界）
+  → 白名单内相邻重复去除（如 今天今天、然后然后、the the；白名单外保持）
+  → 高置信改口修复（日期/数字/版本模式：周四，不对，周五 → 周五）
+  → 专有名词别名纠正（最长匹配优先；Latin 词边界；CJK 连续匹配；受保护片段内不替换）
+  → 最终文本
 ```
+
+#### 受保护片段规则
+
+| 类型 | 示例 | 说明 |
+|------|------|------|
+| URL | `https://github.com/user/repo` | http/https/ftp 开头，支持 Unicode IRI，遇空格或外部句末标点停止 |
+| 邮箱 | `user@example.com` | word@domain.tld 格式 |
+| 绝对路径 | `/etc/vibetype/config.json` | `/` 开头 |
+| 家目录路径 | `~/.config/vibetype/` | `~/` 开头 |
+| 相对路径 | `src/backend/text_processor.h` | 含 `/` 的多组件路径 |
+| CLI 选项 | `--fake-asr`, `-s` | `--word` 或 `-X` |
+| 版本号/IP | `v1.2.3`, `192.168.1.1` | N.N[.N]* 格式 |
+| 反引号代码 | `` `ProcessFinal()` `` | 反引号对 |
+| 技术标识符 | `vibetype.finalResult`, `com.example.pkg` | 含点的字母/数字标识符 |
+
+#### 配置分层
+
+- 内置默认：`data/text-processing.json`（配置）+ `data/computer_terms.json`（别名词典）
+- 用户覆盖：`~/.config/vibetype/text-processing.json`（仅覆盖显式字段）
+- 第一版仅在 backend 启动时加载，修改后需重启用户服务
+- 解析失败：保守使用内置默认，记录警告，不影响后端启动
+- 数据目录：依次尝试 `$VIBETYPE_DATA_DIR`、可执行文件相对目录、`${prefix}/share/vibetype` 和源码 `data/`
+
+用户配置示例：
+
+```json
+{
+  "filler_removal": {
+    "chinese_fillers": ["嗯", "呃"]
+  },
+  "repeat_removal": {
+    "cjk_allowlist": ["今天", "然后"],
+    "english_allowlist": ["the", "is"]
+  },
+  "aliases": [
+    {
+      "canonical": "Vibetype",
+      "aliases": ["vibe type", "维布泰普"]
+    }
+  ]
+}
+```
+
+显式空数组会清空对应用户层能力，例如 `"aliases": []` 关闭全部内置 alias；也可使用各 section 的 `enabled: false` 总体关闭。
+
+### 10.5 Extension Point
+
+`ProcessFinal` 在 alias correction 之后保留确定性处理扩展点；新增规则必须以正确文本不退化和受保护片段逐字符不变为前提。
 
 ## 11. Configuration
 

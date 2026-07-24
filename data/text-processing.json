@@ -1,0 +1,40 @@
+{
+  "_comment": "Default text-processing configuration for Vibetype backend. Users may place an override at ~/.config/vibetype/text-processing.json with only the fields they want to change.",
+  "filler_removal": {
+    "enabled": true,
+    "chinese_fillers": ["嗯", "呃"],
+    "english_fillers": ["um", "uh"],
+    "comment": "那个/这个/然后 are NOT in the filler list and are never removed"
+  },
+  "repeat_removal": {
+    "enabled": true,
+    "min_phrase_chars": 2,
+    "cjk_allowlist": ["今天", "然后", "会议", "问题", "这个", "那个",
+                     "确认", "开始", "继续", "结束", "一下", "好的",
+                     "知道", "可以", "需要", "时候", "准备", "完成"],
+    "english_allowlist": ["the", "a", "an", "is", "are", "was", "were",
+                          "to", "of", "in", "and", "or", "but",
+                          "i", "it", "he", "she", "we", "they",
+                          "do", "does", "did", "be", "been",
+                          "at", "on", "for", "with", "by"],
+    "comment": "Only remove adjacent repetitions explicitly listed in the CJK and English allowlists; an empty allowlist disables that category."
+  },
+  "self_repair": {
+    "enabled": true,
+    "comment": "Only high-confidence date/number/version self-repair. e.g. 周四，不对，周五 -> 周五; 1.2，不对，1.3 -> 1.3"
+  },
+  "alias_correction": {
+    "enabled": true,
+    "comment": "Canonical alias correction with longest-match-first, word-boundary Latin, contiguous CJK"
+  },
+  "protected_spans": {
+    "url": true,
+    "email": true,
+    "path": true,
+    "cli_option": true,
+    "version": true,
+    "backtick_code": true,
+    "tech_identifier": true,
+    "comment": "Protected spans are never modified by any processing step"
+  }
+}

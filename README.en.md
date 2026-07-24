@@ -13,6 +13,7 @@ Vibetype is a Linux voice input method focused on **local, offline ASR**. It run
 - **Fast and accurate**: SenseVoiceSmall GGUF benchmark references report about **20× real-time** CPU inference and **8.17% Mandarin CER** for the Q8 runtime.
 - **Multilingual mixed recognition**: Chinese, English, Cantonese, Japanese, and Korean.
 - **Good for mixed Chinese/English speech**: punctuation normalization prefers full-width punctuation when CJK text is present, and half-width punctuation otherwise.
+- **Deterministic text processing**: no LLM dependency; the backend applies URL/email/path/version/code protection, filler-word cleanup, adjacent-repeat deduplication, high-confidence self-repair, and proper-noun alias correction (GitHub, JSON-RPC, Kubernetes, etc.) identically across all frontends.
 - **Frontend-agnostic backend**: JSON-RPC over Unix socket, built with `xtils::IpcServer`.
 - **Package split**:
   - `vibetype`: backend + CLI + shared Python code + systemd user service.
@@ -151,6 +152,28 @@ vibetype-cli --hold-key F12 --audio-device default --input-method auto
 ```
 
 `auto` copies recognized text to the clipboard and tries to paste with Ctrl+V. This avoids character-by-character key simulation for multilingual text.
+
+## Text processing
+
+The backend runs a deterministic (rule-based, no-LLM) text processing pipeline that keeps CLI, IBus, and Fcitx5 output identical.
+
+### Partial (live preview)
+- Uses the backend's existing punctuation and spacing normalization; no new conversational-cleanup or alias rules run.
+- The bytes inside URLs, emails, file paths, version numbers, inline code, and tech identifiers remain unchanged.
+
+### Final (committed text)
+1. **Protected-span detection** — URL, email, path, CLI option, version number, backtick code, dotted tech identifier.
+2. **Punctuation normalization** — full-width in CJK context, half-width otherwise; never touches protected spans.
+3. **Filler removal** — sentence-initial or post-punctuation 嗯/呃/um/uh; never inside *album*, *thunder*, etc.
+4. **Allowlisted adjacent-repeat deduplication** — configured CJK phrases such as 今天今天 and 然后然后, plus selected English function words such as “the the”; non-allowlisted repetition is preserved.
+5. **High-confidence self-repair** — date/number/version patterns: 周四，不对，周五开会 → 周五开会; version 1.2，不对，1.3 → 1.3.
+6. **Alias correction** — longest-match-first, word-boundary Latin, contiguous CJK; never inside protected spans.
+
+### Config layering
+- Built-in: `data/text-processing.json` + `data/computer_terms.json`
+- User override: `~/.config/vibetype/text-processing.json` (only explicitly set fields are overridden)
+- The first version loads configuration at backend startup; restart the user service after edits.
+- Parse failures fall back to safe defaults; backend startup is not affected.
 
 ## Backend protocol
 

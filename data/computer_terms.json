@@ -1,0 +1,24 @@
+{
+  "_comment": "Built-in computer/tech term aliases. canonical is the authoritative spelling; aliases are case-insensitive matched Latin words or CJK strings.",
+  "aliases": [
+    {"canonical": "Vibetype",     "aliases": ["vibetype"]},
+    {"canonical": "JSON-RPC",     "aliases": ["jsonrpc", "json rpc", "json-rpc"]},
+    {"canonical": "GitHub",       "aliases": ["github", "Github", "git hub"]},
+    {"canonical": "GitLab",       "aliases": ["gitlab", "Gitlab", "git lab"]},
+    {"canonical": "Kubernetes",   "aliases": ["kubernetes", "k8s", "K8S"]},
+    {"canonical": "JavaScript",   "aliases": ["javascript", "Javascript", "java script"]},
+    {"canonical": "TypeScript",   "aliases": ["typescript", "Typescript", "type script"]},
+    {"canonical": "WebSocket",    "aliases": ["websocket", "Websocket", "web socket"]},
+    {"canonical": "ChatGPT",      "aliases": ["chatgpt", "chat gpt", "Chat GPT"]},
+    {"canonical": "OpenAI",       "aliases": ["openai", "open ai", "Open AI"]},
+    {"canonical": "YouTube",      "aliases": ["youtube", "You Tube", "you tube"]},
+    {"canonical": "WiFi",         "aliases": ["wifi", "wi fi", "wi-fi", "Wifi"]},
+    {"canonical": "macOS",        "aliases": ["macos", "MacOS", "Mac OS", "mac os"]},
+    {"canonical": "iPhone",       "aliases": ["iphone", "IPhone", "i phone"]},
+    {"canonical": "Linux",        "aliases": ["linux"]},
+    {"canonical": "ALSA",         "aliases": ["alsa"]},
+    {"canonical": "IBus",         "aliases": ["ibus", "Ibus", "I Bus", "i bus"]},
+    {"canonical": "Fcitx5",       "aliases": ["fcitx5", "Fcitx 5", "fcitx 5"]},
+    {"canonical": "SenseVoice",   "aliases": ["sensevoice", "Sense Voice", "sense voice"]}
+  ]
+}
