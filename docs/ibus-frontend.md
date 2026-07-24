@@ -36,6 +36,22 @@ When `SocketPath` is empty, the frontend uses
 
 Command-line flags still override config-file values.
 
+## Text processing and backend config
+
+The setup dialog also edits the shared
+`~/.config/vibetype/text-processing.json`: it provides switches for built-in computer-term
+corrections and Qwen3 polishing plus a multi-line custom correction editor using
+`wrong=correct`. Saving is atomic and asks a running backend to reload on a best-effort basis;
+the next `startSession` also detects the changed file. Text transformation itself remains in
+the backend, and IBus commits `vibetype.finalResult` exactly as received.
+
+See [`install.md`](install.md) for a full description of:
+
+- Built-in computer term corrections (default: enabled)
+- Custom `custom_corrections` rules (object or array format)
+- Optional Qwen3-0.6B Q4\_K\_M GGUF polishing (default: disabled)
+- Config hot-reload via mtime, SIGHUP, or `startSession`
+
 ## Run without IBus integration
 
 Start a fake backend:
@@ -76,7 +92,8 @@ Test sound-card capture only, without backend:
   --record-out /tmp/vibetype-record-test.wav
 ```
 
-Expected output includes WAV stats. `peak` and `rms` should be above zero when the microphone captures sound.
+Expected output includes WAV stats. `peak` and `rms` should be above zero when the microphone
+captures sound.
 
 Record once from ALSA default input, then submit to the backend:
 
@@ -87,7 +104,8 @@ Record once from ALSA default input, then submit to the backend:
   --no-wait-model
 ```
 
-The frontend reads raw PCM from `arecord -D <audio-device> -f S16_LE -r 16000 -c 1 -t raw`, writes 16 kHz mono PCM16 WAV, then sends the WAV path to the backend.
+The frontend reads raw PCM from `arecord -D <audio-device> -f S16_LE -r 16000 -c 1 -t raw`,
+writes 16 kHz mono PCM16 WAV, then sends the WAV path to the backend.
 
 ## Test with real backend model
 
@@ -116,7 +134,9 @@ Start the backend first, then run:
 ./frontend/ibus/vibetype_ibus.py --ibus --socket /tmp/vibetype.sock
 ```
 
-The configured trigger key toggles recording. During recording, IBus shows a dynamic preedit/auxiliary indicator in the current input context. Partial results are displayed as status text only, and final text is committed to the focused application.
+The configured trigger key toggles recording. During recording, IBus shows a dynamic
+preedit/auxiliary indicator in the current input context. Partial results are displayed as
+status text only; final text is committed to the focused application.
 
 ## Installed IBus component
 
@@ -139,4 +159,4 @@ After installation, restart IBus or reload components:
 ibus restart
 ```
 
-Then add “Vibetype Voice Input” from the IBus input method settings.
+Then add "Vibetype Voice Input" from the IBus input method settings.

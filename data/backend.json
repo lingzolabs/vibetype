@@ -1,0 +1,16 @@
+{
+  "_comment": "Default backend configuration. Copy to ~/.config/vibetype/backend.json to override.",
+  "socket": "",
+  "model": "",
+  "model_url": "",
+  "threads": 8,
+  "fake_asr": false,
+  "fake_text": "",
+  "qwen_enabled": false,
+  "qwen_model": "",
+  "qwen_model_url": "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/1208e45d782fe18602c5eaf10e5758d5b0f24c03/Qwen3-0.6B-Q4_K_M.gguf",
+  "qwen_threads": 4,
+  "qwen_n_ctx": 512,
+  "qwen_max_tokens": 256,
+  "qwen_timeout_ms": 10000
+}

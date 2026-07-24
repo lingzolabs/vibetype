@@ -554,6 +554,18 @@ class VibetypeController:
         else:
             self._session_errored = True
 
+    def reload_config(self) -> Optional[dict]:
+        """Call vibetype.reloadConfig on the backend. Returns result or None on error."""
+        return self._safe_call("vibetype.reloadConfig", {}, timeout=10.0)
+
+    def config_status(self) -> Optional[dict]:
+        """Call vibetype.configStatus on the backend. Returns result or None on error."""
+        return self._safe_call("vibetype.configStatus", {}, timeout=10.0)
+
+    def polish_status(self) -> Optional[dict]:
+        """Return optional Qwen polisher state."""
+        return self._safe_call("vibetype.polishStatus", {}, timeout=10.0)
+
     def _on_notify(self, method: str, params: dict) -> None:
         if method == "vibetype.partialResult":
             self.status_callback(f"partial: {params.get('text', '')}")
@@ -566,4 +578,8 @@ class VibetypeController:
             self.status_callback(f"error: {params.get('message', params)}")
         elif method == "vibetype.modelStatusChanged":
             self.status_callback(f"model {params.get('state')}: {params.get('message', '')}")
+        elif method == "vibetype.statusChanged":
+            reason = params.get("reason")
+            if reason == "config_reloaded":
+                self.status_callback(f"config reloaded (revision {params.get('revision', '?')})")
 

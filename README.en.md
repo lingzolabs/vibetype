@@ -10,9 +10,21 @@ Vibetype is a Linux voice input method focused on **local, offline ASR**. It run
 
 - **Local and offline**: audio stays on your machine after the model is downloaded.
 - **No GPU dependency**: CPU inference via `ggml` / `llama.cpp` components.
-- **Fast and accurate**: SenseVoiceSmall GGUF benchmark references report about **20× real-time** CPU inference and **8.17% Mandarin CER** for the Q8 runtime.
 - **Multilingual mixed recognition**: Chinese, English, Cantonese, Japanese, and Korean.
-- **Good for mixed Chinese/English speech**: punctuation normalization prefers full-width punctuation when CJK text is present, and half-width punctuation otherwise.
+- **Good for mixed Chinese/English speech**: punctuation normalization prefers full-width
+  punctuation when CJK text is present, half-width otherwise; decimal points in numbers
+  are preserved correctly.
+- **Built-in computer term corrections**: a bundled `computer_terms.json` list fixes common
+  ASR capitalization errors (e.g. `github` → `GitHub`, `javascript` → `JavaScript`).
+  Enabled by default; disable with `"enable_builtin_corrections": false`.
+- **Custom correction rules**: add a `custom_corrections` section (object or array format)
+  to `text-processing.json`; user rules take priority over the built-in term list.
+- **Optional Qwen3 final polishing**: Qwen3-0.6B Q4\_K\_M GGUF, **off by default**; when
+  enabled and the model is loaded, the final text is polished before delivery; on failure
+  the backend falls back to rule-based corrections silently.
+- **Config hot-reload**: edit `backend.json` or `text-processing.json` and the backend
+  picks up changes within 5 seconds (mtime polling), on the next recording session
+  (`startSession` mtime check), or immediately on SIGHUP — no restart needed.
 - **Frontend-agnostic backend**: JSON-RPC over Unix socket, built with `xtils::IpcServer`.
 - **Package split**:
   - `vibetype`: backend + CLI + shared Python code + systemd user service.
@@ -24,12 +36,15 @@ Vibetype is a Linux voice input method focused on **local, offline ASR**. It run
 | Frontend | Status | Notes |
 | --- | --- | --- |
 | CLI | Available | ALSA capture, selectable sound card, push-to-talk key mode, clipboard paste delivery. |
-| IBus | Available | Commits only final text; partial text is status/preedit style display. |
-| Fcitx5 | Available | C++ addon + Python helper frontend; commits only final text. |
+| IBus | Available | Commits only final text; partial text is status/preedit display only. |
+| Fcitx5 | Available | C++ addon frontend; commits only final text. |
 
 ## Performance and accuracy references
 
-The default target model is **SenseVoiceSmall Q8 GGUF**. The following numbers are upstream / public benchmark references, not a promise for every microphone, accent, or desktop environment. Vibetype currently runs local CPU ASR and will continue to add frontend/backend polish such as VAD and domain adaptation.
+The default target model is **SenseVoiceSmall Q8 GGUF**. The following numbers are upstream /
+public benchmark references to illustrate model capability, **not a guarantee for every
+microphone, accent, or desktop environment**. Vibetype currently runs local CPU ASR and will
+continue to add features such as VAD and domain adaptation.
 
 | Source / setup | Metric | Result |
 | --- | --- | --- |
@@ -40,16 +55,22 @@ The default target model is **SenseVoiceSmall Q8 GGUF**. The following numbers a
 
 Notes:
 
-- Lower **CER/WER** is better; lower **RTF** is faster. RTF 0.05 means roughly 20 seconds of audio processed per 1 second of compute.
-- The quoted Mandarin GGUF benchmark uses a VAD-based segmentation pipeline. Vibetype's current backend does not yet use VAD before ASR, so real-world long-form accuracy may differ until native VAD is added.
-- The first optimization target for Vibetype is **Chinese and English** recognition quality. Fine-tuning / domain adaptation is planned later for user-specific vocabulary, names, technical terms, and mixed Chinese-English dictation.
+- Lower **CER/WER** is better; lower **RTF** is faster. RTF 0.05 means roughly 20 seconds
+  of audio processed per 1 second of compute.
+- The quoted Mandarin GGUF benchmark uses a VAD-based segmentation pipeline. Vibetype's
+  current backend does not yet use VAD before ASR, so real-world long-form accuracy may
+  differ until native VAD is added.
+- The first optimization target for Vibetype is **Chinese and English** recognition quality.
+  Fine-tuning / domain adaptation is planned for user vocabulary, names, and technical terms.
 
 References:
 
 - SenseVoice README: <https://github.com/FunAudioLLM/SenseVoice>
 - GGUF CPU benchmark: <https://github.com/FunAudioLLM/SenseVoice/blob/main/runtime/llama.cpp/BENCHMARKS.md>
 
-## Model
+## Models
+
+### SenseVoice model
 
 Default model path:
 
@@ -57,13 +78,88 @@ Default model path:
 ${XDG_CONFIG_HOME:-$HOME/.config}/vibetype/models/sensevoice-small-q8.gguf
 ```
 
-If the model is missing, the backend starts its IPC socket first, downloads the model in the background, and reports model status to frontends.
+If the model is missing, the backend starts its IPC socket first, downloads the model in the
+background, and reports model status to frontends via `vibetype.modelStatusChanged`.
 
-Model source:
+### Qwen3 polish model (optional)
+
+The backend optionally uses **Qwen3-0.6B Q4\_K\_M GGUF** to polish the final ASR text.
+This feature is **disabled by default** and the model is **not downloaded automatically**
+unless you enable it.
+
+Default path when enabled:
+
+```text
+${XDG_CONFIG_HOME:-$HOME/.config}/vibetype/models/qwen3-0.6b-q4_k_m.gguf
+```
+
+The installed default `/usr/share/vibetype/text-processing.json` contains the base prompt.
+The user file `~/.config/vibetype/text-processing.json` only needs to override selected fields:
+
+```json
+{
+  "enable_qwen_polish": true
+}
+```
+
+A user `qwen_system_prompt` overrides the default prompt; changing it requires a config
+reload, not a rebuild. If neither layer supplies a valid prompt, the backend reports a
+configuration error, skips LLM processing, and preserves the rule-based result. Model
+download, inference failure, and timeout behavior remain fail-safe.
+
+Model sources:
 
 - SenseVoice: <https://github.com/FunAudioLLM/SenseVoice>
 - SenseVoice Small GGUF: <https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF>
-- Benchmark references: <https://www.funasr.com/en/blog/funasr-vs-whisper-benchmark.html>
+- Qwen3-0.6B GGUF: <https://huggingface.co/Qwen/Qwen3-0.6B-GGUF>
+
+## Text processing configuration
+
+The backend reads text processing settings from two optional JSON files:
+
+| File | Default path |
+|------|-------------|
+| `backend.json` | `~/.config/vibetype/backend.json` |
+| `text-processing.json` | `~/.config/vibetype/text-processing.json` |
+
+Both files are optional; `text-processing.json` takes precedence over `backend.json` for
+text-processing fields.
+
+### Built-in computer term corrections
+
+Enabled by default. To disable:
+
+```json
+{ "enable_builtin_corrections": false }
+```
+
+### Custom correction rules
+
+The `custom_corrections` field accepts either an object or an array (max 500 rules; key and
+value each at most 256 bytes). User rules take priority over built-in terms.
+
+```json
+{
+  "custom_corrections": [
+    { "from": "维博太普", "to": "Vibetype"   },
+    { "from": "吉特哈布", "to": "GitHub"     },
+    { "from": "k8s",      "to": "Kubernetes" }
+  ]
+}
+```
+
+### Config hot-reload
+
+The backend picks up changes to `backend.json` and `text-processing.json` automatically,
+without restarting:
+
+- **Every `startSession`**: mtime check, reload if changed.
+- **Every ~5 seconds**: main loop polls mtime automatically.
+- **SIGHUP** (within 100 ms): `pkill -HUP vibetype-backend`
+- **`vibetype.reloadConfig` RPC**: for testing and diagnostics.
+
+On successful reload the backend broadcasts `vibetype.statusChanged` with an incremented
+`revision` number.
 
 ## Build
 
@@ -150,7 +246,8 @@ Push-to-talk style: each press/release pair is one independent recognition resul
 vibetype-cli --hold-key F12 --audio-device default --input-method auto
 ```
 
-`auto` copies recognized text to the clipboard and tries to paste with Ctrl+V. This avoids character-by-character key simulation for multilingual text.
+`auto` copies recognized text to the clipboard and tries to paste with Ctrl+V. This avoids
+character-by-character key simulation for multilingual text.
 
 ## Backend protocol
 
@@ -162,6 +259,8 @@ The backend exposes JSON-RPC methods over a Unix socket:
 - `vibetype.finishSession`
 - `vibetype.cancelSession`
 - `vibetype.modelStatus`
+- `vibetype.reloadConfig` (testing / diagnostics)
+- `vibetype.configStatus` (testing / diagnostics)
 
 Notifications:
 
@@ -169,6 +268,7 @@ Notifications:
 - `vibetype.finalResult`
 - `vibetype.error`
 - `vibetype.modelStatusChanged`
+- `vibetype.statusChanged`
 
 ## Documentation
 
@@ -176,7 +276,7 @@ Notifications:
 - IBus: [`docs/ibus-frontend.md`](docs/ibus-frontend.md)
 - Install: [`docs/install.md`](docs/install.md)
 - Spec: [`docs/vibetype-spec.md`](docs/vibetype-spec.md)
-- Fcitx5 status: [`docs/fcitx5-frontend.md`](docs/fcitx5-frontend.md)
+- Fcitx5: [`docs/fcitx5-frontend.md`](docs/fcitx5-frontend.md)
 
 ## License
 

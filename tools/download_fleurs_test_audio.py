@@ -109,7 +109,7 @@ def extract_samples(lang: str, config: str, transcripts: dict, out_dir: Path, co
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default="testdata/fleurs")
-    parser.add_argument("--count", type=int, default=2)
+    parser.add_argument("--count", type=int, default=5)
     args = parser.parse_args()
 
     out_dir = Path(args.out)

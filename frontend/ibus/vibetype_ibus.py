@@ -25,6 +25,15 @@ from vibetype_client import (  # noqa: E402
     wav_stats,
     write_silence_wav,
 )
+from vibetype_config import (  # noqa: E402
+    load_text_proc_config,
+    patch_text_proc_config,
+    get_enable_builtin_corrections,
+    get_enable_qwen_polish,
+    get_custom_corrections,
+    corrections_to_text,
+    corrections_from_text,
+)
 
 
 IBUS_CONFIG_SECTION = "ibus"
@@ -113,6 +122,16 @@ def run_setup() -> int:
     settings = load_ibus_settings()
     config_path = ibus_config_path()
 
+    # Load shared text-processing config (do not apply defaults to file).
+    try:
+        tp_data = load_text_proc_config()
+    except ValueError:
+        tp_data = {}
+
+    tp_enable_builtin = get_enable_builtin_corrections(tp_data)
+    tp_enable_qwen = get_enable_qwen_polish(tp_data)
+    tp_corrections = get_custom_corrections(tp_data)
+
     try:
         import gi
 
@@ -170,6 +189,49 @@ def run_setup() -> int:
     hint.set_line_wrap(True)
     outer.pack_start(hint, False, False, 0)
 
+    # ── Text-processing section ───────────────────────────────────────
+    sep = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+    outer.pack_start(sep, False, False, 0)
+
+    tp_title = Gtk.Label()
+    tp_title.set_markup("<b>Text Processing</b>")
+    tp_title.set_xalign(0)
+    outer.pack_start(tp_title, False, False, 0)
+
+    tp_grid = Gtk.Grid(column_spacing=12, row_spacing=8)
+    outer.pack_start(tp_grid, False, False, 0)
+
+    builtin_check = Gtk.CheckButton(label="Enable built-in computer-term corrections")
+    builtin_check.set_active(tp_enable_builtin)
+    tp_grid.attach(builtin_check, 0, 0, 2, 1)
+
+    qwen_check = Gtk.CheckButton(label="Enable Qwen LLM polish")
+    qwen_check.set_active(tp_enable_qwen)
+    tp_grid.attach(qwen_check, 0, 1, 2, 1)
+
+    corr_label = Gtk.Label(label="Custom corrections (one per line, format: wrong=correct)")
+    corr_label.set_xalign(0)
+    tp_grid.attach(corr_label, 0, 2, 2, 1)
+
+    corr_tv = Gtk.TextView()
+    corr_tv.set_size_request(400, 100)
+    corr_tv.set_accepts_tab(False)
+    corr_buf = corr_tv.get_buffer()
+    corr_buf.set_text(corrections_to_text(tp_corrections))
+
+    corr_scroll = Gtk.ScrolledWindow()
+    corr_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+    corr_scroll.add(corr_tv)
+    tp_grid.attach(corr_scroll, 0, 3, 2, 1)
+
+    tp_hint = Gtk.Label(
+        label="Each line: wrong_word=correct_word  (first '=' separates key from value)"
+    )
+    tp_hint.set_xalign(0)
+    tp_hint.set_line_wrap(True)
+    outer.pack_start(tp_hint, False, False, 0)
+
+    # ── Buttons ──────────────────────────────────────────────────────────
     buttons = Gtk.ButtonBox(orientation=Gtk.Orientation.HORIZONTAL)
     buttons.set_layout(Gtk.ButtonBoxStyle.END)
     outer.pack_start(buttons, False, False, 0)
@@ -199,6 +261,23 @@ def run_setup() -> int:
             show_error(str(exc))
             return
 
+        # Validate and save the shared config first so an error does not leave
+        # the two configuration files partially updated.
+        start_iter, end_iter = corr_buf.get_bounds()
+        corr_text = corr_buf.get_text(start_iter, end_iter, False)
+        new_corrections = corrections_from_text(corr_text)
+        try:
+            patch_text_proc_config(
+                {
+                    "enable_builtin_corrections": builtin_check.get_active(),
+                    "enable_qwen_polish": qwen_check.get_active(),
+                    "custom_corrections": new_corrections,
+                }
+            )
+        except (ValueError, OSError) as exc:
+            show_error(f"Failed to save text-processing config: {exc}")
+            return
+
         save_ibus_settings(
             {
                 "TriggerKey": trigger_key,
@@ -207,6 +286,11 @@ def run_setup() -> int:
                 "AudioDevice": audio_entry.get_text().strip(),
             }
         )
+
+        # Optionally notify running backend to reload (best-effort, non-blocking).
+        socket_path = socket_entry.get_text().strip() or default_socket_path()
+        _try_reload_config(socket_path)
+
         window.destroy()
 
     cancel_button.connect("clicked", lambda _button: window.destroy())
@@ -215,6 +299,20 @@ def run_setup() -> int:
     window.show_all()
     Gtk.main()
     return 0
+
+
+def _try_reload_config(socket_path: str) -> None:
+    """Best-effort reload after an atomic save; the next session is fallback."""
+    try:
+        from vibetype_client import JsonRpcClient
+        client = JsonRpcClient(socket_path)
+        client.connect()
+        try:
+            client.call("vibetype.reloadConfig", {}, timeout=2.0)
+        finally:
+            client.close()
+    except Exception:
+        pass
 
 
 def run_ibus(socket_path: str, segment_seconds: int, trigger_key: str, audio_device: str) -> int:

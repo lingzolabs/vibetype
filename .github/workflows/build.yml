@@ -43,13 +43,13 @@ jobs:
 
       - name: Configure
         run: |
-          cmake -B build \
+          cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
             -Wno-dev
 
       - name: Build backend
-        run: cmake --build build --target vibetype-backend -j"$(nproc)"
+        run: cmake --build build --config Release --target vibetype-backend -j"$(nproc)"
 
       - name: Check Python syntax
         run: |
@@ -58,7 +58,7 @@ jobs:
           python3 -m py_compile frontend/ibus/vibetype_ibus.py
 
       - name: Build packages (.deb + .rpm + .tar.gz)
-        run: cmake --build build --target package -j"$(nproc)"
+        run: cmake --build build --config Release --target package -j"$(nproc)"
 
       - name: List built packages
         run: |

@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fcntl.h>
 #include <fstream>
 #include <sstream>
 #include <sys/wait.h>
@@ -45,6 +46,102 @@ static constexpr uint64_t kAnimationIntervalUs = 250000; // 250ms
 static std::string getRuntimeDir() {
     const char *runtime = getenv("XDG_RUNTIME_DIR");
     return runtime ? std::string(runtime) : "/tmp";
+}
+
+// Return path of the shared text-processing.json config file.
+static std::string getTextProcConfigPath() {
+    const char *xdg = getenv("XDG_CONFIG_HOME");
+    std::string base;
+    if (xdg && *xdg) {
+        base = xdg;
+    } else {
+        const char *home = getenv("HOME");
+        base = home ? std::string(home) + "/.config" : "/tmp";
+    }
+    return base + "/vibetype/text-processing.json";
+}
+
+// Parse custom_corrections from a JSON value (array [{from,to}] or object {from:to}).
+// Returns multi-line "from=to" string for the config field.
+static std::string parseCorrectionsToText(const xtils::Json& j) {
+    std::string result;
+    auto append = [&](const std::string& from, const std::string& to) {
+        if (!from.empty()) {
+            if (!result.empty()) result += '\n';
+            result += from + '=' + to;
+        }
+    };
+    if (j.is_object()) {
+        for (const auto& [k, v] : j.as_object()) {
+            if (v.is_string()) append(k, v.as_string());
+        }
+    } else if (j.is_array()) {
+        for (const auto& item : j.as_array()) {
+            if (!item.is_object()) continue;
+            auto from = item.get_string("from");
+            auto to   = item.get_string("to");
+            if (from && to) append(*from, *to);
+        }
+    }
+    return result;
+}
+
+// Parse multi-line "from=to" text into a JSON array [{from, to}, ...].
+static xtils::Json correctionsTextToJson(const std::string& text) {
+    xtils::Json arr = xtils::Json::array();
+    std::istringstream ss(text);
+    std::string line;
+    while (std::getline(ss, line)) {
+        // Strip trailing \r
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        // Strip leading/trailing spaces
+        const auto ltrim = line.find_first_not_of(" \t");
+        if (ltrim == std::string::npos) continue;
+        const auto rtrim = line.find_last_not_of(" \t");
+        line = line.substr(ltrim, rtrim - ltrim + 1);
+        if (line.empty()) continue;
+        const auto eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string from = line.substr(0, eq);
+        std::string to   = line.substr(eq + 1);
+        // Trim from/to
+        auto tf = from.find_last_not_of(" \t");
+        if (tf != std::string::npos) from = from.substr(0, tf + 1);
+        auto tt = to.find_first_not_of(" \t");
+        to = (tt != std::string::npos) ? to.substr(tt) : "";
+        if (from.empty()) continue;
+        xtils::Json item = xtils::Json::object();
+        item["from"] = from;
+        item["to"]   = to;
+        arr.push_back(item);
+    }
+    return arr;
+}
+
+// Atomically write data to path using a same-directory temp file.
+static bool atomicWriteFile(const std::string& path, const std::string& data) {
+    const std::string tmp = path + ".tmp." + std::to_string(::getpid());
+    const int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (fd < 0) return false;
+
+    size_t offset = 0;
+    while (offset < data.size()) {
+        const ssize_t written = ::write(fd, data.data() + offset, data.size() - offset);
+        if (written < 0) {
+            if (errno == EINTR) continue;
+            ::close(fd);
+            ::unlink(tmp.c_str());
+            return false;
+        }
+        offset += static_cast<size_t>(written);
+    }
+    const bool synced = ::fsync(fd) == 0;
+    const bool closed = ::close(fd) == 0;
+    if (!synced || !closed || ::rename(tmp.c_str(), path.c_str()) != 0) {
+        ::unlink(tmp.c_str());
+        return false;
+    }
+    return true;
 }
 
 std::string VibetypeEngine::sessionDir() {
@@ -99,6 +196,10 @@ static constexpr char kConfigFile[] = "conf/vibetype.conf";
 
 void VibetypeEngine::reloadConfig() {
     readAsIni(config_, kConfigFile);
+    // Sync the three text-processing fields from text-processing.json,
+    // overwriting whatever was in vibetype.conf (the JSON file is the source of
+    // truth for these fields; do NOT write defaults if the file is absent).
+    syncTextProcFromFile();
     const auto &keys = config_.triggerKey.value();
     if (!keys.empty()) {
         trigger_key_sym_ = keys[0].sym();
@@ -107,13 +208,104 @@ void VibetypeEngine::reloadConfig() {
                  << static_cast<int>(trigger_key_sym_);
 }
 
+void VibetypeEngine::syncTextProcFromFile() {
+    const std::string path = getTextProcConfigPath();
+    std::ifstream in(path);
+    if (!in) return;  // file absent — keep existing config values as-is
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    const std::string text = ss.str();
+    if (text.empty()) return;
+
+    auto j = xtils::Json::parse(text);
+    if (!j) {
+        FCITX_WARN() << "Vibetype: failed to parse " << path;
+        return;
+    }
+
+    // Patch only the three known fields; leave all others untouched.
+    auto builtin = j->get_bool("enable_builtin_corrections");
+    if (builtin) {
+        config_.enableBuiltinCorrections.setValue(*builtin);
+    }
+    auto qwen = j->get_bool("enable_qwen_polish");
+    if (qwen) {
+        config_.enableQwenPolish.setValue(*qwen);
+    }
+    const xtils::Json* cc = j->find("custom_corrections");
+    if (cc) {
+        config_.customCorrections.setValue(parseCorrectionsToText(*cc));
+    }
+}
+
+void VibetypeEngine::flushTextProcToFile() {
+    const std::string path = getTextProcConfigPath();
+
+    // Load existing file to preserve unknown fields.
+    xtils::Json existing = xtils::Json::object();
+    {
+        std::ifstream in(path);
+        if (in) {
+            std::ostringstream ss;
+            ss << in.rdbuf();
+            auto j = xtils::Json::parse(ss.str());
+            if (!j) {
+                FCITX_WARN() << "Vibetype: refusing to overwrite invalid " << path;
+                return;
+            }
+            existing = *j;
+        }
+    }
+
+    // Patch the three known fields.
+    existing["enable_builtin_corrections"] = config_.enableBuiltinCorrections.value();
+    existing["enable_qwen_polish"]         = config_.enableQwenPolish.value();
+    existing["custom_corrections"]         = correctionsTextToJson(config_.customCorrections.value());
+
+    const std::string data = existing.dump(2) + "\n";
+
+    // Ensure directory exists.
+    std::error_code ec;
+    std::filesystem::create_directories(
+        std::filesystem::path(path).parent_path(), ec);
+
+    if (!atomicWriteFile(path, data)) {
+        FCITX_WARN() << "Vibetype: failed to write text-processing config to " << path;
+    }
+}
+
 const Configuration *VibetypeEngine::getConfig() const {
     return &config_;
 }
 
 void VibetypeEngine::setConfig(const RawConfig &raw) {
+    const std::string oldSocket = config_.socketPath.value();
+    const bool oldBuiltin = config_.enableBuiltinCorrections.value();
+    const bool oldQwen = config_.enableQwenPolish.value();
+    const std::string oldCorrections = config_.customCorrections.value();
+
     config_.load(raw, true);
     safeSaveAsIni(config_, kConfigFile);
+
+    const bool textChanged =
+        oldBuiltin != config_.enableBuiltinCorrections.value() ||
+        oldQwen != config_.enableQwenPolish.value() ||
+        oldCorrections != config_.customCorrections.value();
+    if (textChanged) {
+        flushTextProcToFile();
+        if (backendConnected_) {
+            auto r = safeCall("vibetype.reloadConfig", xtils::Json::object(), 5000);
+            if (!r.ok()) {
+                FCITX_WARN() << "Vibetype: reloadConfig after setConfig failed: "
+                             << r.error().message;
+            }
+        }
+    }
+
+    if (oldSocket != config_.socketPath.value()) {
+        disconnectBackend();
+        connectBackend();
+    }
 }
 
 void VibetypeEngine::setSubConfig(const std::string &path,
@@ -311,7 +503,16 @@ void VibetypeEngine::startRecording() {
 
     recording_ = true;
     startRecordingAnimation();
-    beginSession();
+    if (!beginSession()) {
+        recording_ = false;
+        stopRecordingAnimation();
+        if (!sessionDir_.empty()) {
+            std::error_code ec;
+            std::filesystem::remove_all(sessionDir_, ec);
+            sessionDir_.clear();
+        }
+        return;
+    }
     startCapture();
 }
 
@@ -357,7 +558,7 @@ void VibetypeEngine::stopRecording() {
     // finalResult notification will trigger doCommit and panel clear
 }
 
-void VibetypeEngine::beginSession() {
+bool VibetypeEngine::beginSession() {
     sessionId_ = generateUuid();
     sessionDir_ = sessionDir();
     segmentIndex_ = 0;
@@ -368,7 +569,8 @@ void VibetypeEngine::beginSession() {
     std::filesystem::create_directories(sessionDir_, ec);
     if (ec) {
         FCITX_ERROR() << "Vibetype: cannot create session dir " << sessionDir_;
-        return;
+        doStatus("error: cannot create recording directory");
+        return false;
     }
 
     xtils::Json params = xtils::Json::object();
@@ -386,7 +588,9 @@ void VibetypeEngine::beginSession() {
         FCITX_ERROR() << "Vibetype: startSession failed: "
                        << result.error().message;
         doStatus("error: session start failed");
+        return false;
     }
+    return true;
 }
 
 // ── capture ─────────────────────────────────────────────────────────

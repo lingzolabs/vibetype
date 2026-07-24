@@ -47,7 +47,19 @@ FCITX_CONFIGURATION(VibetypeConfig,
                          this, "SocketPath", "Backend Socket Path", ""};
                      Option<std::string> audioDevice{
                          this, "AudioDevice", "ALSA Audio Device",
-                         "default"};);
+                         "default"};
+                     // ── Text-processing (synced from text-processing.json) ──
+                     Option<bool> enableBuiltinCorrections{
+                         this, "EnableBuiltinCorrections",
+                         "Enable built-in computer-term corrections", true};
+                     Option<bool> enableQwenPolish{
+                         this, "EnableQwenPolish",
+                         "Enable Qwen LLM polish", false};
+                     // Multi-line: each line is "from=to"
+                     Option<std::string> customCorrections{
+                         this, "CustomCorrections",
+                         "Custom corrections (one per line: wrong=correct)", ""};
+                    );
 
 // ── Engine ──────────────────────────────────────────────────────────
 
@@ -67,6 +79,10 @@ public:
                       const RawConfig &config) override;
 
 private:
+    /* shared text-processing config */
+    void syncTextProcFromFile();
+    void flushTextProcToFile();
+
     /* backend IPC */
     void connectBackend();
     void disconnectBackend();
@@ -81,7 +97,7 @@ private:
     /* recording */
     void startRecording();
     void stopRecording();
-    void beginSession();
+    bool beginSession();
     void startCapture();
     void stopCapture();
     void captureLoop();

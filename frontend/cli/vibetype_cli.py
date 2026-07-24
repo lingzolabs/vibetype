@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
 import os
 import select
 import shutil
@@ -26,7 +27,7 @@ for path in (SOURCE_COMMON_DIR, INSTALLED_COMMON_DIR, Path("/usr/share/vibetype/
         sys.path.insert(0, str(path))
 
 from vibetype_client import VibetypeController, default_socket_path  # noqa: E402
-
+from vibetype_client import JsonRpcClient  # noqa: E402
 EV_KEY = 0x01
 KEY_CODES = {
     "KEY_SPACE": 57,
@@ -401,10 +402,37 @@ def main() -> int:
     )
     parser.add_argument("--print-final", action="store_true", help="Also print final text to stderr")
     parser.add_argument("--quiet", action="store_true")
+    # Config utility actions (test/diagnostic use only; not a production config UI)
+    parser.add_argument("--reload-config", action="store_true",
+                        help="Ask the backend to reload text-processing.json and exit")
+    parser.add_argument("--config-status", action="store_true",
+                        help="Print backend config status as JSON and exit")
     args = parser.parse_args()
 
     if args.list_audio_devices:
         return list_audio_devices()
+
+    # ── Config utility actions ──────────────────────────────────────────
+    if args.reload_config or args.config_status:
+        try:
+            client = JsonRpcClient(args.socket)
+            client.connect()
+        except (FileNotFoundError, ConnectionRefusedError, OSError) as exc:
+            print(f"ERROR: cannot connect to backend at {args.socket}: {exc}", file=sys.stderr)
+            return 1
+        try:
+            if args.config_status:
+                result = client.call("vibetype.configStatus", {}, timeout=10.0)
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+            if args.reload_config:
+                result = client.call("vibetype.reloadConfig", {}, timeout=10.0)
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+        except (RuntimeError, TimeoutError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        finally:
+            client.close()
+        return 0
 
     if args.segment_seconds <= 0:
         parser.error("--segment-seconds must be > 0")

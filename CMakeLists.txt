@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 include(FetchContent)
+include(GNUInstallDirs)
 
 option(VIBETYPE_USE_SYSTEM_XTILS "Use installed xtils package instead of fetching it" OFF)
 set(XTILS_GIT_REPOSITORY "https://github.com/lingzolabs/xtils.git" CACHE STRING "xtils Git repository")
@@ -41,18 +42,50 @@ if(NOT llama_POPULATED)
     cmake_policy(SET CMP0169 OLD)
   endif()
   FetchContent_Populate(llama)
-  add_subdirectory("${llama_SOURCE_DIR}/ggml" "${llama_BINARY_DIR}/ggml" EXCLUDE_FROM_ALL)
+endif()
+# Build ggml + llama library via the llama.cpp root CMakeLists (provides cmake/common.cmake macros).
+set(LLAMA_BUILD_COMMON OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_MTMD OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_APP OFF CACHE BOOL "" FORCE)
+if(NOT TARGET llama)
+  add_subdirectory("${llama_SOURCE_DIR}" "${llama_BINARY_DIR}/llama" EXCLUDE_FROM_ALL)
 endif()
 
 add_executable(vibetype-backend
   src/backend/main.cc
-  src/backend/sensevoice_engine.cc)
+  src/backend/sensevoice_engine.cc
+  src/backend/qwen_engine.cc
+  src/backend/text_processor.cc
+  src/backend/config_manager.cc)
 target_include_directories(vibetype-backend PRIVATE
-  src/backend)
-target_compile_definitions(vibetype-backend PRIVATE LOG_TAG_STRING="vibetype-backend")
-target_link_libraries(vibetype-backend PRIVATE ${VIBETYPE_XTILS_TARGET} ggml)
+  src/backend
+  ${llama_SOURCE_DIR}/include
+  ${llama_SOURCE_DIR}/ggml/include)
+target_compile_definitions(vibetype-backend PRIVATE
+  LOG_TAG_STRING="vibetype-backend"
+  VIBETYPE_INSTALL_DATA_DIR="${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATADIR}/vibetype"
+  VIBETYPE_SOURCE_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+target_link_libraries(vibetype-backend PRIVATE ${VIBETYPE_XTILS_TARGET} ggml llama)
 
-include(GNUInstallDirs)
+# Unit test for text processing pipeline
+add_executable(test-text-processor
+  src/backend/test/test_text_processor.cc
+  src/backend/text_processor.cc
+  src/backend/config_manager.cc
+  src/backend/test/qwen_engine_stub.cc)
+target_include_directories(test-text-processor PRIVATE
+  src/backend
+  ${llama_SOURCE_DIR}/include
+  ${llama_SOURCE_DIR}/ggml/include)
+target_compile_definitions(test-text-processor PRIVATE
+  LOG_TAG_STRING="test"
+  VIBETYPE_SOURCE_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+target_link_libraries(test-text-processor PRIVATE ${VIBETYPE_XTILS_TARGET})
+enable_testing()
+add_test(NAME text-processor COMMAND test-text-processor)
 
 # ── Version from git tag (strip leading 'v' from e.g. v0.1.2) ──
 execute_process(
@@ -92,11 +125,19 @@ function(vibetype_install_core component_name)
           DESTINATION ${CMAKE_INSTALL_BINDIR}
           RENAME vibetype-cli
           COMPONENT ${component_name})
-  install(FILES frontend/common/vibetype_client.py
+  install(FILES
+            frontend/common/vibetype_client.py
+            frontend/common/vibetype_config.py
           DESTINATION ${CMAKE_INSTALL_DATADIR}/vibetype/python
           COMPONENT ${component_name})
   install(FILES packaging/systemd/vibetype-backend.service
           DESTINATION ${CMAKE_INSTALL_LIBDIR}/systemd/user
+          COMPONENT ${component_name})
+  install(FILES
+            data/computer_terms.json
+            data/backend.json
+            data/text-processing.json
+          DESTINATION ${CMAKE_INSTALL_DATADIR}/vibetype
           COMPONENT ${component_name})
   install(FILES
             README.md

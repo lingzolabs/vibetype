@@ -4,3 +4,4 @@ build/
 *.so
 __pycache__/
 .pytest_cache/
+build-release/
